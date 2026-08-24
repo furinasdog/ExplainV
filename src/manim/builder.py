@@ -16,12 +16,11 @@ Usage::
 """
 
 import os
-import sys
 import shutil
 import subprocess
+import sys
 import uuid as _uuid
 from pathlib import Path
-from typing import Optional
 
 from jinja2 import Template
 
@@ -278,7 +277,9 @@ class ManimBuilder:
         # Set PYTHONPATH so the script can import src.* modules
         project_root = str(_PROJECT_ROOT)
         existing_pp = env.get("PYTHONPATH", "")
-        env["PYTHONPATH"] = f"{project_root}{os.pathsep}{existing_pp}" if existing_pp else project_root
+        env["PYTHONPATH"] = (
+            f"{project_root}{os.pathsep}{existing_pp}" if existing_pp else project_root
+        )
 
         try:
             result = subprocess.run(
@@ -290,10 +291,14 @@ class ManimBuilder:
                 timeout=600,  # 10-minute timeout
             )
         except subprocess.TimeoutExpired as exc:
-            stdout = exc.stdout.decode("utf-8", errors="replace") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
-            stderr = exc.stderr.decode("utf-8", errors="replace") if isinstance(exc.stderr, bytes) else (exc.stderr or "")
+            stdout = exc.stdout
+            stderr = exc.stderr
+            if isinstance(stdout, bytes):
+                stdout = stdout.decode("utf-8", errors="replace")
+            if isinstance(stderr, bytes):
+                stderr = stderr.decode("utf-8", errors="replace")
             raise RenderError(
-                f"Manim rendering timed out after 600s.",
+                "Manim rendering timed out after 600s.",
                 stdout=stdout or "",
                 stderr=stderr or "TimeoutExpired: rendering exceeded the 10-minute limit.",
             ) from exc

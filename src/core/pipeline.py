@@ -21,18 +21,18 @@ Usage::
 """
 
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import Optional, Callable
+from typing import Callable, Optional
 
-from utils.logger import get_logger
 from src.llm.client import Client
 from src.llm.parser import (
-    parse_code_generation_response,
     GeneratedScene,
     ParseError,
+    parse_code_generation_response,
 )
 from src.manim.builder import ManimBuilder, RenderError, render_code_generation_prompt
+from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -324,7 +324,9 @@ class Pipeline:
         try:
             reviewed_scene = parse_code_generation_response(response)
         except ParseError as err:
-            logger.warning("Code-review response failed to parse (%s) — keeping unreviewed code", err)
+            logger.warning(
+                "Code-review response failed to parse (%s) — keeping unreviewed code", err
+            )
             return scene
 
         logger.info(
@@ -441,7 +443,6 @@ class Pipeline:
             )
 
             try:
-                self._progress("rendering", min(0.1 * attempt, 0.9))
                 video_path = self.manim_builder.render(
                     script_path, current.scene_name, task_uuid
                 )
@@ -460,7 +461,6 @@ class Pipeline:
                     "for auto-repair (%d round(s) left)",
                     attempt, total_attempts, rounds_left,
                 )
-                self._progress("code_fixing", attempt / total_attempts)
                 current = self.fix_code(current, err)
 
         raise RuntimeError("unreachable: render loop exited")

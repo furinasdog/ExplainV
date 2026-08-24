@@ -11,11 +11,9 @@ Opens a web interface where you can:
     - Generate an animated explanation video
 """
 
-import os
 import sys
-import uuid
-import shutil
 import traceback
+import uuid
 from pathlib import Path
 
 # Ensure project root is on sys.path
@@ -24,12 +22,13 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 # Load environment variables
 from dotenv import load_dotenv
+
 load_dotenv(_PROJECT_ROOT / ".env")
 
 import gradio as gr
 
-from utils.logger import setup_logging, get_logger
 from src.core.pipeline import Pipeline, PipelineResult
+from utils.logger import get_logger, setup_logging
 
 setup_logging()
 logger = get_logger(__name__)
@@ -118,11 +117,15 @@ def _generate_video(
 
         progress(1.0, desc="完成！")
 
+        status = (
+            f"✅ 生成完成！\nUUID: {result.uuid}\n"
+            f"场景: {result.scene.scene_name}\n视频: {result.video_path}"
+        )
         return (
             str(result.video_path),
             result.explanation,
             result.scene.code,
-            f"✅ 生成完成！\nUUID: {result.uuid}\n场景: {result.scene.scene_name}\n视频: {result.video_path}",
+            status,
         )
 
     except Exception as e:

@@ -1,0 +1,27 @@
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["data", "media", "asset"]
+
+[tool.ruff.lint]
+select = [
+    "E",  # pycodestyle errors (PEP 8)
+    "W",  # pycodestyle warnings (PEP 8)
+    "F",  # pyflakes
+    "I",  # isort (import sorting)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Entry points adjust sys.path / load .env before importing project modules.
+"main.py" = ["E402"]
+"demo.py" = ["E402"]
+# Manim scene files conventionally use `from manim import *`.
+"make.py" = ["E402", "F403", "F405"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

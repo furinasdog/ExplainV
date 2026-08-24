@@ -223,3 +223,9 @@ __marimo__/
 data/*
 
 !.gitkeep
+
+# Manim render output
+media/
+
+# Voice cloning runtime cache
+asset/.voice_id_cache.json

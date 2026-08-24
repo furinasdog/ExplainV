@@ -8,8 +8,8 @@ Usage:
     python make.py
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Ensure project root is on sys.path so `src.*` imports work
@@ -18,11 +18,12 @@ sys.path.insert(0, str(_project_root))
 
 # Load environment variables from .env
 from dotenv import load_dotenv
+
 load_dotenv(_project_root / ".env")
 
-from manim import *
 from manim_voiceover import VoiceoverScene
 
+from manim import *
 from src.audio.bailian_service import BailianService
 
 # ---------------------------------------------------------------------------

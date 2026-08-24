@@ -22,13 +22,14 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 # Load environment variables
 from dotenv import load_dotenv
+
 load_dotenv(_PROJECT_ROOT / ".env")
 
 import logging
 
-from utils.logger import setup_logging, get_logger
-from utils.command_line import parse_args
 from src.core.pipeline import Pipeline
+from utils.command_line import parse_args
+from utils.logger import get_logger, setup_logging
 
 
 def main() -> None:
@@ -81,7 +82,7 @@ def main() -> None:
             result = pipeline.run_text(args.input_text)
 
         print()  # newline after progress bar
-        print(f"\n✅ 生成完成！")
+        print("\n✅ 生成完成！")
         print(f"   UUID:   {result.uuid}")
         print(f"   场景:   {result.scene.scene_name}")
         print(f"   脚本:   {result.script_path}")

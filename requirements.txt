@@ -7,4 +7,3 @@ gradio
 Pillow
 manim
 manim-voiceover
-manim

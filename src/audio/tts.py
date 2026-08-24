@@ -18,14 +18,14 @@ Example::
     tts.save("你好，欢迎使用语音合成", "./output.mp3")
 """
 
-import os
 import base64
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
-import requests
 import dashscope
+import requests
 from dashscope.audio.tts_v2 import AudioFormat, SpeechSynthesizer
 
 logger = logging.getLogger(__name__)

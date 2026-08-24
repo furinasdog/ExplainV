@@ -1,6 +1,7 @@
-import os
 import base64
-from typing import List, Dict, Any, Optional
+import os
+from typing import Any, Dict, List, Optional
+
 import openai
 
 from utils.logger import get_logger

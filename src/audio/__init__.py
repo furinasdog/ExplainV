@@ -1,3 +1,3 @@
-from .tts import VoiceCloner, TTS
+from .tts import TTS, VoiceCloner
 
 __all__ = ["VoiceCloner", "TTS"]

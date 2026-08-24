@@ -4,14 +4,13 @@ with voice cloning (qwen-audio-3.0-tts-plus).
 """
 
 import json
-import logging
 from pathlib import Path
 
 from manim import logger
 
 try:
     from manim_voiceover._typing import VoiceoverData
-    from manim_voiceover.helper import remove_bookmarks, prompt_ask_missing_extras
+    from manim_voiceover.helper import remove_bookmarks
     from manim_voiceover.services.base import (
         PathLike,
         SpeechService,
@@ -23,7 +22,7 @@ except ImportError:
         "manim-voiceover is required. Install it with: pip install manim-voiceover"
     )
 
-from src.audio.tts import VoiceCloner, TTS
+from src.audio.tts import TTS, VoiceCloner
 
 _VOICE_ID_CACHE = ".voice_id_cache.json"
 
