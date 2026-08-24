@@ -295,13 +295,27 @@ class Pipeline:
         )
 
         if problem_image:
-            response = self.code_review_client.call_model_with_image(
-                text=user_text, img_path=str(problem_image)
-            )
+            try:
+                response = self.code_review_client.call_model_with_image(
+                    text=user_text, img_path=str(problem_image)
+                )
+            except Exception as err:
+                logger.warning(
+                    "Code-review LLM call failed (%s) — keeping unreviewed code",
+                    err,
+                )
+                return scene
         else:
-            response = self.code_review_client.call_model_without_image(
-                text=user_text
-            )
+            try:
+                response = self.code_review_client.call_model_without_image(
+                    text=user_text
+                )
+            except Exception as err:
+                logger.warning(
+                    "Code-review LLM call failed (%s) — keeping unreviewed code",
+                    err,
+                )
+                return scene
 
         if not response:
             logger.warning("LLM returned empty code-review response — keeping unreviewed code")
