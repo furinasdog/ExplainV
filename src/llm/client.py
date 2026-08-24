@@ -3,6 +3,11 @@ import base64
 from typing import List, Dict, Any, Optional
 import openai
 
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+
+
 class Client:
     def __init__(self, system_prompt: str):
         self.api_key = os.getenv("EXPLAINV_API_KEY", None)
@@ -20,24 +25,32 @@ class Client:
                               system_prompt: Optional[str] = None) -> None | Any:
         """调用API接口（带图片）"""
         messages = self.build_messages_with_image(text, img_path, system_prompt)
+        logger.info("Calling LLM with image (model=%s)", self.model_name)
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
             extra_body={"enable_thinking": True}
         )
-        return self._process_response(response)
+        result = self._process_response(response)
+        logger.info("LLM response: %s type, %d chars",
+                     type(result).__name__, len(result) if result else 0)
+        return result
 
     def call_model_without_image(self,
                                  text: str,
                                  system_prompt: Optional[str] = None) -> None | Any:
         """调用API接口（无图片）"""
         messages = self.build_messages_without_image(text, system_prompt)
+        logger.info("Calling LLM text-only (model=%s)", self.model_name)
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
             extra_body={"enable_thinking": True}
         )
-        return self._process_response(response)
+        result = self._process_response(response)
+        logger.info("LLM response: %s type, %d chars",
+                     type(result).__name__, len(result) if result else 0)
+        return result
 
     def build_messages_with_image(self,
                                   text: str,
@@ -90,15 +103,23 @@ class Client:
         ]
         return messages
 
-    def _process_response(self, response: Any) ->  None | Any:
+    def _process_response(self, response: Any) -> None | Any:
         """处理API返回结果"""
-        if not response or not response.choices:
-            return {
-                "content": "",
-                "reasoning_content": "",
-                "finish_reason": None,
-                "usage": None
-            }
+        # Some API providers return a plain string instead of
+        # an OpenAI ChatCompletion object — handle both cases.
+        if isinstance(response, str):
+            # Detect HTML responses (API gateway returning a web page)
+            stripped = response.lstrip()
+            if stripped.startswith("<!") or stripped.startswith("<html"):
+                logger.error("API returned HTML instead of JSON:\n%s", response[:300])
+                raise RuntimeError(
+                    "API 返回了 HTML 页面而非 JSON 响应。"
+                    "请检查 EXPLAINV_API_URL 是否正确指向 API 端点。"
+                )
+            return response
+
+        if not response or not hasattr(response, "choices") or not response.choices:
+            return None
 
         choice = response.choices[0]
         message = choice.message

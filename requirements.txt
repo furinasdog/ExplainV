@@ -2,3 +2,6 @@ openai
 dashscope
 requests
 python-dotenv
+jinja2
+gradio
+Pillow
