@@ -1,0 +1,6 @@
+模型,数据集,指标,子集,数量,得分,类别
+kimi-k3,math_vision,mean_acc,level 1,48,0.7917,default
+kimi-k3,math_vision,mean_acc,level 2,50,0.9000,default
+kimi-k3,math_vision,mean_acc,level 3,48,0.9583,default
+kimi-k3,math_vision,mean_acc,level 4,50,0.9200,default
+kimi-k3,math_vision,mean_acc,level 5,48,0.9583,default
