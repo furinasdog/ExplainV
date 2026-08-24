@@ -29,7 +29,8 @@ class Client:
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
-            extra_body={"enable_thinking": True}
+            extra_body={"enable_thinking": True},
+            timeout=2400
         )
         result = self._process_response(response)
         logger.info("LLM response: %s type, %d chars",
@@ -45,7 +46,8 @@ class Client:
         response = self.client.chat.completions.create(
             model=self.model_name,
             messages=messages,
-            extra_body={"enable_thinking": True}
+            extra_body={"enable_thinking": True},
+            timeout=2400
         )
         result = self._process_response(response)
         logger.info("LLM response: %s type, %d chars",
