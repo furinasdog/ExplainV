@@ -14,6 +14,94 @@ ExplainV 是一个基于视觉语言模型（VLM）与 Manim 动画引擎的自�
 - **音视频精准同步**：集成 TTS 引擎生成语音旁白，并通过时间戳算法实现音频与动画帧的精准对齐。
 - **端到端自动化**：支持从题目输入到最终 MP4 视频输出的全流程自动化处理。
 
+## 安装说明
+
+### 环境要求
+
+| 依赖 | 版本要求 | 说明 |
+|------|----------|------|
+| Python | ≥ 3.10 | 代码使用了 `str \| Path` 等 PEP 604 语法 |
+| FFmpeg | 最新稳定版 | Manim 渲染与音视频合成必需，需加入 PATH |
+| LaTeX | 可选 | 若生成的动画包含数学公式（`MathTex`），需安装 [MiKTeX](https://miktex.org/)（Windows）或 TeX Live |
+| Conda | 推荐 | Windows 下强烈推荐使用 Miniconda/Anaconda，可自动配置 Pango/Cairo 等原生依赖 |
+
+> **Windows 用户注意**：Manim 依赖 Pango、Cairo 等原生库，通过 Conda 安装可避免 DLL 缺失问题。本项目已内置对未激活 Conda 环境（如 PyCharm 直接启动）的兼容处理。
+
+### 安装步骤
+
+**1. 克隆仓库**
+
+```bash
+git clone <repository-url>
+cd ExplainV
+```
+
+**2. 创建虚拟环境**
+
+```bash
+# 推荐使用 Conda
+conda create -n explainv python=3.10 -y
+conda activate explainv
+
+# 或使用 venv
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# Linux / macOS
+source .venv/bin/activate
+```
+
+**3. 安装依赖**
+
+```bash
+# 项目基础依赖
+pip install -r requirements.txt
+
+# Manim 渲染引擎与语音同步组件
+pip install manim manim-voiceover
+```
+
+**4. 配置环境变量**
+
+复制 `.env.example` 为 `.env` 并填写：
+
+```bash
+cp .env.example .env
+```
+
+```env
+# LLM 服务配置（用于题解生成与 Manim 代码生成）
+EXPLAINV_API_URL=<OpenAI 兼容 API 端点>
+EXPLAINV_API_KEY=<API Key>
+EXPLAINV_USE_MODEL=<模型名称，如 Kimi-k3>
+
+# 阿里云百炼平台配置（用于 TTS 语音克隆与合成）
+DASHSCOPE_WORKSPACE_ID=<业务空间 ID>
+DASHSCOPE_WORKSPACE_KEY=<API Key>
+```
+
+**5. 准备参考音频**
+
+项目默认使用 `asset/mar7th.wav` 进行声音克隆。如需自定义音色，请准备一段 10–20 秒、清晰无背景音的 WAV/MP3 朗读音频（详见 `src/audio/README.md`）。
+
+### 验证安装
+
+```bash
+# 文本输入生成视频
+python main.py -t "已知直角三角形两条直角边分别为3和4，求斜边长度。"
+
+# 图片输入生成视频
+python main.py -i ./problem.png
+
+# 自定义参考音频与画质（l/m/h/k 对应 480p~4K）
+python main.py -t "求解方程 x^2 + 2x + 1 = 0" -a asset/anaxa.wav -q m
+
+# 启动 Web 演示界面（http://localhost:7860）
+python demo.py
+```
+
+生成成功后，输出视频位于 `data/<uuid>.mp4`。
+
 ## 系统工作流程
 
 1. **输入阶段**：接收用户提供的题目文本或截图。
