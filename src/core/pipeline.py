@@ -52,6 +52,20 @@ _CODE_REVIEW_PROMPT_PATH = _PROMPT_DIR / "CodeReview.md"
 _STDOUT_CLIP = 4000
 _STDERR_CLIP = 8000
 
+# Rendering (incl. auto-repair rounds) occupies this slice of overall progress
+_RENDER_PROGRESS_BASE = 0.5
+_RENDER_PROGRESS_SPAN = 0.4
+
+# Stage names emitted via the progress callback (in typical order):
+#   explanation -> code_generation -> code_reviewing -> rendering
+#   -> code_fixing (only when repairing) -> done
+STAGE_EXPLANATION = "explanation"
+STAGE_CODE_GENERATION = "code_generation"
+STAGE_CODE_REVIEWING = "code_reviewing"
+STAGE_RENDERING = "rendering"
+STAGE_CODE_FIXING = "code_fixing"
+STAGE_DONE = "done"
+
 
 # ---------------------------------------------------------------------------
 # Result dataclass
@@ -73,8 +87,18 @@ class PipelineResult:
 # ---------------------------------------------------------------------------
 
 ProgressCallback = Callable[[str, float], None]
-"""Callback signature: ``callback(stage_name: str, progress: float)``
-where *progress* is 0.0 – 1.0."""
+"""Callback signature: ``callback(stage_name: str, progress: float)`` where
+*progress* is 0.0 – 1.0 and monotonically non-decreasing across the run.
+
+Standard stage names emitted by :class:`Pipeline`:
+
+- ``explanation``       — generating the structured explanation (LLM)
+- ``code_generation``   — converting the explanation into Manim code (LLM)
+- ``code_reviewing``    — LLM layout review of the generated code
+- ``rendering``         — Manim rendering (one update per attempt)
+- ``code_fixing``       — LLM auto-repair after a failed render attempt
+- ``done``              — pipeline finished (progress = 1.0)
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -442,6 +466,12 @@ class Pipeline:
                 current.scene_name, current.code, task_uuid
             )
 
+            render_progress = (
+                _RENDER_PROGRESS_BASE
+                + _RENDER_PROGRESS_SPAN * (attempt - 1) / total_attempts
+            )
+            self._progress(STAGE_RENDERING, min(render_progress, 0.95))
+
             try:
                 video_path = self.manim_builder.render(
                     script_path, current.scene_name, task_uuid
@@ -461,6 +491,11 @@ class Pipeline:
                     "for auto-repair (%d round(s) left)",
                     attempt, total_attempts, rounds_left,
                 )
+                fix_progress = (
+                    _RENDER_PROGRESS_BASE
+                    + _RENDER_PROGRESS_SPAN * attempt / total_attempts
+                )
+                self._progress(STAGE_CODE_FIXING, min(fix_progress, 0.95))
                 current = self.fix_code(current, err)
 
         raise RuntimeError("unreachable: render loop exited")
@@ -479,20 +514,18 @@ class Pipeline:
         task_uuid = str(uuid.uuid4())
         logger.info("=== Pipeline start (text) — uuid=%s ===", task_uuid)
 
-        self._progress("pipeline", 0.0)
-
+        self._progress(STAGE_EXPLANATION, 0.05)
         explanation = self.generate_explanation(text=text)
-        self._progress("pipeline", 0.3)
 
+        self._progress(STAGE_CODE_GENERATION, 0.35)
         scene = self.generate_code(explanation)
-        self._progress("pipeline", 0.4)
 
-        self._progress("code_reviewing", 0.45)
+        self._progress(STAGE_CODE_REVIEWING, 0.45)
         scene = self.review_code(scene, explanation, problem_text=text)
-        self._progress("pipeline", 0.5)
 
         scene, script_path, video_path = self._render_with_auto_fix(scene, task_uuid)
-        self._progress("pipeline", 1.0)
+
+        self._progress(STAGE_DONE, 1.0)
 
         logger.info("=== Pipeline complete — video: %s ===", video_path)
         return PipelineResult(
@@ -515,20 +548,18 @@ class Pipeline:
         task_uuid = str(uuid.uuid4())
         logger.info("=== Pipeline start (image) — uuid=%s ===", task_uuid)
 
-        self._progress("pipeline", 0.0)
-
+        self._progress(STAGE_EXPLANATION, 0.05)
         explanation = self.generate_explanation(image_path=image_path)
-        self._progress("pipeline", 0.3)
 
+        self._progress(STAGE_CODE_GENERATION, 0.35)
         scene = self.generate_code(explanation)
-        self._progress("pipeline", 0.4)
 
-        self._progress("code_reviewing", 0.45)
+        self._progress(STAGE_CODE_REVIEWING, 0.45)
         scene = self.review_code(scene, explanation, problem_image=image_path)
-        self._progress("pipeline", 0.5)
 
         scene, script_path, video_path = self._render_with_auto_fix(scene, task_uuid)
-        self._progress("pipeline", 1.0)
+
+        self._progress(STAGE_DONE, 1.0)
 
         logger.info("=== Pipeline complete — video: %s ===", video_path)
         return PipelineResult(

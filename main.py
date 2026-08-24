@@ -57,6 +57,7 @@ def main() -> None:
             "code_reviewing": "代码审查优化",
             "rendering": "视频渲染",
             "code_fixing": "错误自动修复",
+            "done": "完成",
         }
         label = stage_labels.get(stage, stage)
         bar_len = 30

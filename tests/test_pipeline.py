@@ -70,6 +70,77 @@ class TestProgressCallback:
         assert calls == [("rendering", 0.25)]
 
 
+class TestRunStageSequence:
+    """run_* must emit one specific stage per step (not just "pipeline")."""
+
+    def _mocked_pipeline(self, tmp_path):
+        calls = []
+        pipe = Pipeline(
+            max_retries=1,
+            data_dir=tmp_path,
+            on_progress=lambda stage, value: calls.append((stage, value)),
+        )
+
+        explanation_client = MagicMock()
+        explanation_client.call_model_without_image.return_value = "题解内容"
+        codegen_client = MagicMock()
+        codegen_client.call_model_without_image.return_value = json.dumps(
+            {"Scene Name": "MyScene", "Code": "x = 1"}
+        )
+        review_client = MagicMock()
+        review_client.call_model_without_image.side_effect = RuntimeError("skip")
+        pipe._explanation_client = explanation_client
+        pipe._codegen_client = codegen_client
+        pipe._codereview_client = review_client
+
+        builder = MagicMock()
+        builder.write_script.side_effect = (
+            lambda name, code, uuid: tmp_path / f"{uuid}.py"
+        )
+        builder.render.return_value = tmp_path / "v.mp4"
+        pipe._manim_builder = builder
+        return pipe, calls
+
+    def test_run_text_emits_step_stages(self, tmp_path):
+        pipe, calls = self._mocked_pipeline(tmp_path)
+        pipe.run_text("题目")
+
+        assert [stage for stage, _ in calls] == [
+            "explanation",
+            "code_generation",
+            "code_reviewing",
+            "rendering",
+            "done",
+        ]
+
+    def test_run_text_progress_is_monotonic_and_completes(self, tmp_path):
+        pipe, calls = self._mocked_pipeline(tmp_path)
+        pipe.run_text("题目")
+
+        values = [value for _, value in calls]
+        assert values == sorted(values)
+        assert values[0] > 0
+        assert values[-1] == 1.0
+
+    def test_render_failure_reports_code_fixing_stage(self, tmp_path):
+        pipe, calls = self._mocked_pipeline(tmp_path)
+        pipe._manim_builder.render.side_effect = [
+            RenderError("fail"),
+            tmp_path / "v.mp4",
+        ]
+        pipe.fix_code = MagicMock(
+            return_value=GeneratedScene(scene_name="MyScene", code="fixed")
+        )
+
+        result = pipe.run_text("题目")
+
+        stages = [stage for stage, _ in calls]
+        assert stages.count("rendering") == 2
+        assert stages.count("code_fixing") == 1
+        assert stages[-1] == "done"
+        assert result.scene.code == "fixed"
+
+
 class TestReviewCode:
     def test_llm_failure_returns_original_scene(self, pipe, scene):
         client = MagicMock()

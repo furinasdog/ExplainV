@@ -84,6 +84,7 @@ def _generate_video(
                 "code_reviewing": "审查优化代码",
                 "rendering": "渲染视频",
                 "code_fixing": "自动修复代码",
+                "done": "完成",
             }
             label = stage_labels.get(stage, stage)
             progress(value, desc=f"{label}...")
