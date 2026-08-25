@@ -74,6 +74,7 @@ class MyScene(VoiceoverScene):
 3. 请确保元素不会超过显示范围
 4. Tex的中文要添加`tex_template=TexTemplateLibrary.ctex`否则会报错
 5. 辅助线不要忘记绘制
+6. 标题与图表不用时清理，避免新的标题覆盖原有的标题
 
 # 禁止行为：
 1. 禁止输出非JSON内容
