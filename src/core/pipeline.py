@@ -31,7 +31,8 @@ from src.llm.parser import (
     ParseError,
     parse_code_generation_response,
 )
-from src.manim.builder import ManimBuilder, RenderError, render_code_generation_prompt
+from src.manim.builder import ManimBuilder, RenderError, render_prompt_template
+from src.options import ExplanationOptions
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -118,6 +119,8 @@ class Pipeline:
         data_dir:       Working directory for scripts and output.
         max_retries:    Max LLM auto-repair rounds on render failure.
         on_progress:    Optional progress callback.
+        options:        User-customizable explanation modules
+                        (:class:`~src.core.options.ExplanationOptions`).
     """
 
     def __init__(
@@ -127,6 +130,7 @@ class Pipeline:
         data_dir: str | Path | None = None,
         max_retries: int = 3,
         on_progress: ProgressCallback | None = None,
+        options: ExplanationOptions | None = None,
     ):
         if ref_audio_path is None:
             ref_audio_path = _PROJECT_ROOT / "asset" / "mar7th.wav"
@@ -135,7 +139,13 @@ class Pipeline:
         self.quality = quality
         self.data_dir = data_dir
         self.max_retries = max(0, int(max_retries))
+        self.options = options if options is not None else ExplanationOptions()
         self._on_progress = on_progress or (lambda *_: None)
+
+        # Current problem context (set by run_text / run_image, used to give
+        # the code-generation model direct access to the original problem)
+        self._problem_text: str | None = None
+        self._problem_image: str | Path | None = None
 
         # Lazy-loaded components
         self._explanation_client: Optional[Client] = None
@@ -146,19 +156,33 @@ class Pipeline:
 
     # -- Lazy init -----------------------------------------------------------
 
+    def _template_context(self) -> dict:
+        """Common Jinja2 variables shared by all prompt templates."""
+        return {
+            "ref_audio_path": self.ref_audio_path,
+            "options": self.options,
+            "enabled_sections": self.options.enabled_labels(),
+        }
+
     @property
     def explanation_client(self) -> Client:
         if self._explanation_client is None:
-            prompt = _EXPLANATION_PROMPT_PATH.read_text(encoding="utf-8")
-            self._explanation_client = Client(system_prompt=prompt)
+            raw_prompt = _EXPLANATION_PROMPT_PATH.read_text(encoding="utf-8")
+            rendered_prompt = render_prompt_template(
+                raw_prompt, **self._template_context()
+            )
+            self._explanation_client = Client(system_prompt=rendered_prompt)
         return self._explanation_client
 
     @property
     def codegen_client(self) -> Client:
         if self._codegen_client is None:
             raw_prompt = _CODE_GEN_PROMPT_PATH.read_text(encoding="utf-8")
-            rendered_prompt = render_code_generation_prompt(
-                raw_prompt, self.ref_audio_path
+            rendered_prompt = render_prompt_template(
+                raw_prompt,
+                problem_text=self._problem_text or "",
+                has_problem_image=self._problem_image is not None,
+                **self._template_context(),
             )
             self._codegen_client = Client(system_prompt=rendered_prompt)
         return self._codegen_client
@@ -167,8 +191,8 @@ class Pipeline:
     def code_fix_client(self) -> Client:
         if self._codefix_client is None:
             raw_prompt = _CODE_FIX_PROMPT_PATH.read_text(encoding="utf-8")
-            rendered_prompt = render_code_generation_prompt(
-                raw_prompt, self.ref_audio_path
+            rendered_prompt = render_prompt_template(
+                raw_prompt, **self._template_context()
             )
             self._codefix_client = Client(system_prompt=rendered_prompt)
         return self._codefix_client
@@ -177,8 +201,8 @@ class Pipeline:
     def code_review_client(self) -> Client:
         if self._codereview_client is None:
             raw_prompt = _CODE_REVIEW_PROMPT_PATH.read_text(encoding="utf-8")
-            rendered_prompt = render_code_generation_prompt(
-                raw_prompt, self.ref_audio_path
+            rendered_prompt = render_prompt_template(
+                raw_prompt, **self._template_context()
             )
             self._codereview_client = Client(system_prompt=rendered_prompt)
         return self._codereview_client
@@ -247,10 +271,21 @@ class Pipeline:
         Returns:
             A :class:`GeneratedScene` with scene name and code.
         """
-        # Prefix user message to reinforce the task instruction
+        # Prefix user message to reinforce the task instruction, and attach
+        # the ORIGINAL problem (text inline / image via the multimodal API)
+        # so the model sees the problem itself instead of only the
+        # LLM-generated explanation.
+        if self._problem_text:
+            problem_block = f"【原题】\n{self._problem_text}"
+        elif self._problem_image:
+            problem_block = "【原题】原题以图片形式附带，请直接查看图片理解题目。"
+        else:
+            problem_block = "【原题】（未提供，请依据下方题解内容生成动画）"
+
         user_text = (
             "请严格按照系统提示中的要求，将以下题解转换为Manim动画代码。"
             "只输出JSON，不要输出任何其他内容。\n\n"
+            f"{problem_block}\n\n"
             f"---\n\n{explanation}"
         )
 
@@ -259,9 +294,15 @@ class Pipeline:
         logger.debug("Code gen system prompt:\n%s",
                       self.codegen_client.system_prompt[:500])
 
-        response = self.codegen_client.call_model_without_image(
-            text=user_text
-        )
+        if self._problem_image:
+            logger.info("Code generation with original image: %s", self._problem_image)
+            response = self.codegen_client.call_model_with_image(
+                text=user_text, img_path=str(self._problem_image)
+            )
+        else:
+            response = self.codegen_client.call_model_without_image(
+                text=user_text
+            )
 
         if not response:
             raise RuntimeError("LLM returned empty code generation response")
@@ -513,6 +554,10 @@ class Pipeline:
         """
         task_uuid = str(uuid.uuid4())
         logger.info("=== Pipeline start (text) — uuid=%s ===", task_uuid)
+        logger.info("Explanation modules: %s", self.options.summary())
+
+        self._problem_text = text
+        self._problem_image = None
 
         self._progress(STAGE_EXPLANATION, 0.05)
         explanation = self.generate_explanation(text=text)
@@ -547,6 +592,10 @@ class Pipeline:
         """
         task_uuid = str(uuid.uuid4())
         logger.info("=== Pipeline start (image) — uuid=%s ===", task_uuid)
+        logger.info("Explanation modules: %s", self.options.summary())
+
+        self._problem_text = None
+        self._problem_image = image_path
 
         self._progress(STAGE_EXPLANATION, 0.05)
         explanation = self.generate_explanation(image_path=image_path)

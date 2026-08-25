@@ -134,14 +134,34 @@ def build_child_env(base_env: dict[str, str] | None = None) -> dict[str, str]:
 # Prompt template rendering
 # ---------------------------------------------------------------------------
 
+def render_prompt_template(template_text: str, **variables) -> str:
+    """Render a Jinja2 prompt template with the given variables.
+
+    Used for all prompt templates under ``prompt/`` (CodeGeneration.md,
+    CodeReview.md, ProblemExplanation.md, ...). Templates may use
+    ``{{ var }}`` placeholders and ``{% if %}`` blocks.
+
+    Args:
+        template_text: Raw template text.
+        **variables:   Template variables. ``ref_audio_path``, if given,
+                       is injected as a Python repr (quoted string).
+
+    Returns:
+        Rendered prompt string.
+    """
+    if "ref_audio_path" in variables:
+        variables["ref_audio_path"] = repr(variables["ref_audio_path"])
+    tpl = Template(template_text, trim_blocks=True, lstrip_blocks=True)
+    return tpl.render(**variables)
+
+
 def render_code_generation_prompt(
     template_text: str,
     ref_audio_path: str,
 ) -> str:
-    """Render the CodeGeneration prompt with Jinja2, filling in ``ref_audio_path``.
+    """Render the CodeGeneration prompt, filling in ``ref_audio_path``.
 
-    The prompt template contains ``{{ ref_audio_path }}`` which must be
-    replaced with the actual absolute path to the reference audio file.
+    Backwards-compatible wrapper around :func:`render_prompt_template`.
 
     Args:
         template_text:  Raw prompt template text (from ``prompt/CodeGeneration.md``).
@@ -150,8 +170,7 @@ def render_code_generation_prompt(
     Returns:
         Rendered prompt string.
     """
-    tpl = Template(template_text)
-    return tpl.render(ref_audio_path=repr(ref_audio_path))
+    return render_prompt_template(template_text, ref_audio_path=ref_audio_path)
 
 
 # ---------------------------------------------------------------------------

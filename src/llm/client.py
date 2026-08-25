@@ -108,6 +108,8 @@ class Client:
             timeout=self.REQUEST_TIMEOUT,
         )
 
+        token_num = 0
+
         parts: List[str] = []
         for chunk in response:
             # 尾部可能存在仅携带 usage、无 choices 的分块
@@ -117,6 +119,10 @@ class Client:
             content = getattr(delta, "content", None) if delta is not None else None
             if content:
                 parts.append(content)
+            token_num += 1
+            if token_num >= 20:
+                logger.info("Stream output 20 token")
+                token_num = 0
 
         result = "".join(parts)
 

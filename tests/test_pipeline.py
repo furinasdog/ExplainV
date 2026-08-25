@@ -9,6 +9,7 @@ import pytest
 from src.core.pipeline import Pipeline, PipelineResult
 from src.llm.parser import GeneratedScene
 from src.manim.builder import RenderError
+from src.options import ExplanationOptions
 
 
 @pytest.fixture
@@ -83,12 +84,17 @@ class TestRunStageSequence:
 
         explanation_client = MagicMock()
         explanation_client.call_model_without_image.return_value = "题解内容"
+        explanation_client.call_model_with_image.return_value = "题解内容"
         codegen_client = MagicMock()
         codegen_client.call_model_without_image.return_value = json.dumps(
             {"Scene Name": "MyScene", "Code": "x = 1"}
         )
+        codegen_client.call_model_with_image.return_value = json.dumps(
+            {"Scene Name": "MyScene", "Code": "x = 1"}
+        )
         review_client = MagicMock()
         review_client.call_model_without_image.side_effect = RuntimeError("skip")
+        review_client.call_model_with_image.side_effect = RuntimeError("skip")
         pipe._explanation_client = explanation_client
         pipe._codegen_client = codegen_client
         pipe._codereview_client = review_client
@@ -275,3 +281,107 @@ class TestPipelineResult:
         assert result.uuid == "id"
         assert result.explanation == "exp"
         assert result.scene is scene
+
+
+class TestOptions:
+    """User-customizable explanation modules."""
+
+    def test_default_options_attached(self, tmp_path):
+        assert isinstance(Pipeline(data_dir=tmp_path).options, ExplanationOptions)
+
+    def test_custom_options_attached(self, tmp_path):
+        options = ExplanationOptions.from_selection(["solution_process"])
+        assert Pipeline(data_dir=tmp_path, options=options).options is options
+
+    @pytest.fixture
+    def env_client(self, monkeypatch):
+        monkeypatch.setenv("EXPLAINV_API_KEY", "k")
+        monkeypatch.setenv("EXPLAINV_API_URL", "https://api.example.test/v1")
+
+    def test_explanation_prompt_reflects_options(self, tmp_path, env_client):
+        options = ExplanationOptions.from_selection(["knowledge_points"])
+        pipe = Pipeline(data_dir=tmp_path, options=options)
+        prompt = pipe.explanation_client.system_prompt
+        assert "- 知识点总结" in prompt
+        assert "【题目原文】" not in prompt  # disabled module removed from template
+        assert "【题目知识点】" in prompt
+
+    def test_codegen_prompt_lists_selected_modules(self, tmp_path, env_client):
+        options = ExplanationOptions.from_selection(
+            ["solution_process"], brief=True
+        )
+        pipe = Pipeline(data_dir=tmp_path, options=options)
+        prompt = pipe.codegen_client.system_prompt
+        assert "- 题目解答过程" in prompt
+        assert "简略模式" in prompt
+
+
+class TestGenerateCodeProblemContext:
+    """The code-generation LLM must see the original problem itself."""
+
+    @staticmethod
+    def _pipe_with_mock(tmp_path):
+        pipe = Pipeline(data_dir=tmp_path)
+        client = MagicMock()
+        client.call_model_without_image.return_value = json.dumps(
+            {"Scene Name": "S", "Code": "c"}
+        )
+        client.call_model_with_image.return_value = json.dumps(
+            {"Scene Name": "S", "Code": "c-img"}
+        )
+        pipe._codegen_client = client
+        return pipe, client
+
+    def test_text_input_embeds_original_problem(self, tmp_path):
+        pipe, client = self._pipe_with_mock(tmp_path)
+        pipe._problem_text = "已知 a=3, b=4，求 c。"
+
+        pipe.generate_code("题解内容")
+
+        user_text = client.call_model_without_image.call_args.kwargs["text"]
+        assert "【原题】" in user_text
+        assert "已知 a=3, b=4，求 c。" in user_text
+
+    def test_image_input_uses_multimodal_call(self, tmp_path):
+        pipe, client = self._pipe_with_mock(tmp_path)
+        img = tmp_path / "problem.png"
+        img.write_bytes(b"png")
+        pipe._problem_image = str(img)
+
+        scene = pipe.generate_code("题解内容")
+
+        kwargs = client.call_model_with_image.call_args.kwargs
+        assert kwargs["img_path"] == str(img)
+        assert "图片形式附带" in kwargs["text"]
+        client.call_model_without_image.assert_not_called()
+        assert scene.code == "c-img"
+
+    def test_no_problem_falls_back_to_text_call(self, tmp_path):
+        pipe, client = self._pipe_with_mock(tmp_path)
+
+        pipe.generate_code("题解内容")
+
+        user_text = client.call_model_without_image.call_args.kwargs["text"]
+        assert "未提供" in user_text
+        client.call_model_with_image.assert_not_called()
+
+    def test_run_text_sets_problem_context(self, tmp_path):
+        pipe, _ = TestRunStageSequence()._mocked_pipeline(tmp_path)
+
+        pipe.run_text("勾股定理题目文本")
+
+        user_text = (
+            pipe._codegen_client.call_model_without_image.call_args.kwargs["text"]
+        )
+        assert "勾股定理题目文本" in user_text
+
+    def test_run_image_sets_problem_context(self, tmp_path):
+        pipe, _ = TestRunStageSequence()._mocked_pipeline(tmp_path)
+        img = tmp_path / "img.png"
+        img.write_bytes(b"png")
+
+        pipe.run_image(str(img))
+
+        assert pipe.codegen_client is not None  # property resolves without error
+        call_kwargs = pipe._codegen_client.call_model_with_image.call_args
+        assert call_kwargs.kwargs["img_path"] == str(img)

@@ -28,6 +28,7 @@ load_dotenv(_PROJECT_ROOT / ".env")
 import logging
 
 from src.core.pipeline import Pipeline
+from src.options import ExplanationOptions
 from utils.command_line import parse_args
 from utils.logger import get_logger, setup_logging
 
@@ -40,12 +41,17 @@ def main() -> None:
     setup_logging(level=level)
     logger = get_logger("explainv")
 
+    options = ExplanationOptions.from_selection(
+        args.sections, brief=args.brief_solution
+    )
+
     logger.info("ExplainV CLI starting...")
     logger.info("  Input text:  %s", args.input_text[:80] if args.input_text else "(none)")
     logger.info("  Input image: %s", args.input_image or "(none)")
     logger.info("  Ref audio:   %s", args.ref_audio)
     logger.info("  Quality:     %s", args.quality)
     logger.info("  Max retries: %s", args.max_retries)
+    logger.info("  Modules:     %s", options.summary())
 
     # Progress display
     def on_progress(stage: str, value: float):
@@ -71,6 +77,7 @@ def main() -> None:
         quality=args.quality,
         max_retries=args.max_retries,
         on_progress=on_progress,
+        options=options,
     )
 
     # Run

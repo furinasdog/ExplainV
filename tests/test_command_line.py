@@ -79,3 +79,29 @@ class TestValidationErrors:
         argv = ["-t", "x", "-a", "ref.wav", "-r", "abc"]
         with pytest.raises(SystemExit):
             parse_args(argv)
+
+
+class TestSectionOptions:
+    """--sections / --brief-solution for explanation customization."""
+
+    def test_defaults_are_none_and_false(self, workspace):
+        args = parse_args(["-t", "x", "-a", "ref.wav"])
+        assert args.sections is None
+        assert args.brief_solution is False
+
+    def test_sections_accept_multiple_values(self, workspace):
+        argv = [
+            "-t", "x", "-a", "ref.wav",
+            "--sections", "solution_process", "answer_verification",
+        ]
+        args = parse_args(argv)
+        assert args.sections == ["solution_process", "answer_verification"]
+
+    def test_invalid_section_exits(self, workspace):
+        argv = ["-t", "x", "-a", "ref.wav", "--sections", "no_such_module"]
+        with pytest.raises(SystemExit):
+            parse_args(argv)
+
+    def test_brief_solution_flag(self, workspace):
+        args = parse_args(["-t", "x", "-a", "ref.wav", "--brief-solution"])
+        assert args.brief_solution is True

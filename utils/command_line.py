@@ -11,6 +11,8 @@ Usage::
 import argparse
 from pathlib import Path
 
+from src.options import SECTION_LABELS
+
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse ExplainV CLI arguments.
@@ -27,6 +29,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         - ``output`` (str | None): Output video path override.
         - ``model`` (str): LLM model name override.
         - ``quality`` (str): Manim render quality (``l`` / ``m`` / ``h`` / ``k``).
+        - ``max_retries`` (int): Max auto-repair rounds on render failure.
+        - ``sections`` (list[str] | None): Enabled explanation module keys.
+        - ``brief_solution`` (bool): Brief-solution mode (approach only).
         - ``verbose`` (bool): Enable debug logging.
     """
     parser = argparse.ArgumentParser(
@@ -91,6 +96,31 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=3,
         help="Max LLM auto-repair rounds when rendering fails (default: 3)",
+    )
+
+    # -- Explanation customization -------------------------------------------
+    parser.add_argument(
+        "--sections",
+        dest="sections",
+        nargs="+",
+        choices=sorted(SECTION_LABELS),
+        default=None,
+        metavar="SECTION",
+        help=(
+            "Enabled explanation modules (multi-value). Choices: "
+            + " ".join(sorted(SECTION_LABELS))
+            + ". Default: all modules enabled."
+        ),
+    )
+    parser.add_argument(
+        "--brief-solution",
+        dest="brief_solution",
+        action="store_true",
+        default=False,
+        help=(
+            "Brief solution mode: explain the approach only, without full "
+            "step-by-step derivation (implies --sections solution_process)"
+        ),
     )
 
     # -- Misc ----------------------------------------------------------------

@@ -28,6 +28,7 @@ load_dotenv(_PROJECT_ROOT / ".env")
 import gradio as gr
 
 from src.core.pipeline import Pipeline, PipelineResult
+from src.options import SECTION_LABELS, ExplanationOptions
 from utils.logger import get_logger, setup_logging
 
 setup_logging()
@@ -40,15 +41,25 @@ logger = get_logger(__name__)
 
 _DEFAULT_REF_AUDIO = str(_PROJECT_ROOT / "asset" / "mar7th.wav")
 
+# CheckboxGroup choices: (display label, option key)
+_SECTION_CHOICES = [(label, key) for key, label in SECTION_LABELS.items()]
+_ALL_SECTION_KEYS = [key for _, key in _SECTION_CHOICES]
+
 
 def _generate_video(
     problem_text: str | None,
     problem_image,
     ref_audio_file,
     quality: str,
+    sections: list[str] | None,
+    brief_solution: bool,
     progress=gr.Progress(track_tqdm=False),
 ):
     """Run the full pipeline and return results for the Gradio UI.
+
+    Args:
+        sections: Enabled explanation module keys (from the CheckboxGroup).
+        brief_solution: Whether 简略解答 mode is checked.
 
     Returns:
         (video_path, explanation_text, code_text, status_text)
@@ -62,6 +73,12 @@ def _generate_video(
     if not has_text and not has_image:
         return None, "", "", "❌ 请输入题目文本或上传题目图片"
 
+    # -- Build explanation options from checkboxes --
+    try:
+        options = ExplanationOptions.from_selection(sections, brief=brief_solution)
+    except ValueError as err:
+        return None, "", "", f"❌ {err}"
+
     # -- Resolve reference audio --
     if ref_audio_file is not None:
         ref_audio = ref_audio_file if isinstance(ref_audio_file, str) else ref_audio_file.name
@@ -71,7 +88,10 @@ def _generate_video(
     if not Path(ref_audio).exists():
         return None, "", "", f"❌ 参考音频不存在: {ref_audio}"
 
-    logger.info("Starting generation — ref_audio=%s, quality=%s", ref_audio, quality)
+    logger.info(
+        "Starting generation — ref_audio=%s, quality=%s, modules=%s",
+        ref_audio, quality, options.summary(),
+    )
 
     # -- Build pipeline --
     try:
@@ -93,6 +113,7 @@ def _generate_video(
             ref_audio_path=ref_audio,
             quality=quality,
             on_progress=on_progress,
+            options=options,
         )
 
         # -- Run --
@@ -177,16 +198,29 @@ def build_ui() -> gr.Blocks:
                     sources=["upload"],
                 )
 
-                quality = gr.Radio(
-                    choices=[
-                        ("低画质 (480p, 快速)", "l"),
-                        ("中画质 (720p)", "m"),
-                        ("高画质 (1080p)", "h"),
-                        ("超高清 (4K, 很慢)", "k"),
-                    ],
-                    value="l",
-                    label="渲染画质",
-                )
+                with gr.Accordion("⚙️ 高级设置", open=False):
+                    quality = gr.Radio(
+                        choices=[
+                            ("低画质 (480p, 快速)", "l"),
+                            ("中画质 (720p)", "m"),
+                            ("高画质 (1080p)", "h"),
+                            ("超高清 (4K, 很慢)", "k"),
+                        ],
+                        value="h",
+                        label="渲染画质",
+                    )
+
+                    sections_box = gr.CheckboxGroup(
+                        choices=_SECTION_CHOICES,
+                        value=_ALL_SECTION_KEYS,
+                        label="勾选视频要讲解的模块",
+                    )
+
+                    brief_checkbox = gr.Checkbox(
+                        value=False,
+                        label=f"{SECTION_LABELS['solution_process']}——简略解答（仅讲解思路）",
+                        visible=True,
+                    )
 
                 generate_btn = gr.Button(
                     "🚀 生成视频",
@@ -223,10 +257,24 @@ def build_ui() -> gr.Blocks:
                         interactive=False,
                     )
 
-        # -- Wire up the button --
+        # -- Wire up the controls --
+
+        # 简略解答 only makes sense when 题目解答过程 is selected
+        def _toggle_brief(selected_keys):
+            return gr.update(visible="solution_process" in (selected_keys or []))
+
+        sections_box.change(
+            fn=_toggle_brief,
+            inputs=sections_box,
+            outputs=brief_checkbox,
+        )
+
         generate_btn.click(
             fn=_generate_video,
-            inputs=[problem_text, problem_image, ref_audio, quality],
+            inputs=[
+                problem_text, problem_image, ref_audio, quality,
+                sections_box, brief_checkbox,
+            ],
             outputs=[video_output, explanation_output, code_output, status_text],
         )
 
@@ -236,7 +284,7 @@ def build_ui() -> gr.Blocks:
             **使用说明：**
             1. 在左侧输入题目文本或上传图片
             2. 可选择上传参考音频（用于语音克隆，不上传则使用默认音频）
-            3. 选择渲染画质
+            3. 展开"高级设置"可调整渲染画质和讲解内容模块（默认1080p、全部模块已勾选）
             4. 点击"生成视频"按钮
             5. 等待生成完成后在右侧查看视频
 
