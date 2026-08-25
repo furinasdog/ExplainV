@@ -11,6 +11,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fonts-noto-cjk \
+    perl \
     && rm -rf /var/lib/apt/lists/*
 
 # 用 tlmgr 安装中文 LaTeX 包（manim 使用 /usr/local/texlive）
@@ -33,8 +34,9 @@ RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
 # 复制项目代码
 COPY . .
 
-# 创建数据目录
-RUN mkdir -p /app/data /app/media
+# 创建数据目录并赋予 manimuser 写权限
+RUN mkdir -p /app/data /app/data/logs /app/media \
+    && chown -R manimuser:manimuser /app/data /app/media
 
 # 切换回 manim 用户
 USER manimuser
