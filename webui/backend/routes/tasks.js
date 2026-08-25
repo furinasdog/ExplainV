@@ -3,8 +3,14 @@ import { v4 as uuid } from 'uuid';
 
 import { authenticate } from '../middleware/auth.js';
 import { readTasks, writeTasks } from './store.js';
-import { scaleUpOne, scaleDownOne, waitForReady, getReplicaCount } from '../services/cluster.js';
-import config from '../config.js';
+import {
+  scaleUpOne,
+  scaleDownOne,
+  waitForReady,
+  findAvailablePod,
+  createPodService,
+  deletePodServiceByName,
+} from '../services/cluster.js';
 
 const router = Router();
 
@@ -22,7 +28,6 @@ router.post('/', async (req, res) => {
   const taskId = uuid();
   const now = new Date().toISOString();
 
-  // Count running tasks to check capacity
   const runningCount = tasks.filter((t) => t.status === 'running' || t.status === 'starting').length;
   const queuedCount = tasks.filter((t) => t.status === 'queued').length;
 
@@ -38,6 +43,8 @@ router.post('/', async (req, res) => {
     error: null,
     createdAt: now,
     updatedAt: now,
+    podName: null,     // assigned Pod name
+    serviceIP: null,   // per-pod Service external IP
     params: { problemText, problemImageBase64, refAudioBase64, quality, sections, briefSolution },
   };
 
@@ -45,7 +52,6 @@ router.post('/', async (req, res) => {
   writeTasks(tasks);
 
   if (task.status === 'starting') {
-    // Start immediately in background
     submitTask(taskId).catch((err) => {
       console.error(`Task ${taskId} failed:`, err);
       const allTasks = readTasks();
@@ -72,96 +78,102 @@ router.get('/', (_req, res) => {
     .filter((t) => t.username === _req.user.username)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     .map(({ params, ...rest }) => rest);
-
   res.json(tasks);
 });
 
-// GET /api/tasks/:id — get task detail
+// GET /api/tasks/:id
 router.get('/:id', (req, res) => {
   const tasks = readTasks();
   const task = tasks.find((t) => t.id === req.params.id && t.username === req.user.username);
-  if (!task) {
-    return res.status(404).json({ error: '任务不存在' });
-  }
-
+  if (!task) return res.status(404).json({ error: '任务不存在' });
   const { params, ...safeTask } = task;
   res.json(safeTask);
 });
 
-// DELETE /api/tasks/:id — cancel task
+// DELETE /api/tasks/:id
 router.delete('/:id', (req, res) => {
   const tasks = readTasks();
   const task = tasks.find((t) => t.id === req.params.id && t.username === req.user.username);
-  if (!task) {
-    return res.status(404).json({ error: '任务不存在' });
-  }
-
+  if (!task) return res.status(404).json({ error: '任务不存在' });
   task.status = 'cancelled';
   task.updatedAt = new Date().toISOString();
   writeTasks(tasks);
-
   res.json({ status: 'cancelled' });
 });
 
 /**
- * Scale up a Pod and submit the task to ExplainV API.
- * Retries submission if a busy Pod responds with 503.
+ * Provision a Pod + Service, then submit the task directly to that Pod's IP.
  */
 async function submitTask(taskId) {
   const tasks = readTasks();
   const task = tasks.find((t) => t.id === taskId);
   if (!task) return;
 
-  // 1. Scale up by 1 Pod
-  console.log(`[${taskId}] Scaling up a new Pod...`);
+  // 1. Scale up StatefulSet
+  console.log(`[${taskId}] Scaling up StatefulSet...`);
   const newCount = await scaleUpOne();
 
-  // 2. Wait for the new Pod count to be ready
-  console.log(`[${taskId}] Waiting for ${newCount} Pod(s) to be ready...`);
+  // 2. Wait for the new Pod to be ready
+  console.log(`[${taskId}] Waiting for ${newCount} Pod(s)...`);
   await waitForReady(newCount, 300_000);
 
-  // 3. Submit task to ExplainV API (retry up to 5 times if 503)
+  // 3. Find an available Pod (ready, no Service yet)
+  console.log(`[${taskId}] Finding available Pod...`);
+  const podName = await findAvailablePod();
+  if (!podName) {
+    throw new Error('No available Pod found');
+  }
+  console.log(`[${taskId}] Assigned Pod: ${podName}`);
+
+  // 4. Create LoadBalancer Service for this Pod
+  console.log(`[${taskId}] Creating Service for ${podName}...`);
+  const serviceIP = await createPodService(podName);
+
+  // 5. Record pod and service info in task
+  const allTasks = readTasks();
+  const t = allTasks.find((x) => x.id === taskId);
+  if (t) {
+    t.podName = podName;
+    t.serviceIP = serviceIP;
+    t.updatedAt = new Date().toISOString();
+    writeTasks(allTasks);
+  }
+
+  // 6. Submit task directly to this Pod's Service IP
+  const podUrl = `http://${serviceIP}:8000`;
   const { problemText, problemImageBase64, quality, sections, briefSolution } = task.params;
 
-  for (let attempt = 1; attempt <= 5; attempt++) {
-    console.log(`[${taskId}] Submitting to API (attempt ${attempt})...`);
+  console.log(`[${taskId}] Submitting to Pod ${podName} at ${podUrl}...`);
 
-    const resp = await fetch(`${config.ackServiceUrl}/tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        problem_text: problemText,
-        problem_image_base64: problemImageBase64,
-        quality: quality || 'l',
-        sections: sections || null,
-        brief_solution: briefSolution || false,
-        task_id: taskId,
-      }),
-    });
+  const resp = await fetch(`${podUrl}/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      problem_text: problemText,
+      problem_image_base64: problemImageBase64,
+      quality: quality || 'l',
+      sections: sections || null,
+      brief_solution: briefSolution || false,
+      task_id: taskId,
+    }),
+  });
 
-    if (resp.ok) {
-      // Update status
-      const allTasks = readTasks();
-      const t = allTasks.find((x) => x.id === taskId);
-      if (t) {
-        t.status = 'running';
-        t.stage = 'submitted';
-        t.updatedAt = new Date().toISOString();
-        writeTasks(allTasks);
-      }
-      console.log(`[${taskId}] Task submitted successfully`);
-      return;
-    }
-
-    if (resp.status === 503 && attempt < 5) {
-      // Hit a busy Pod, wait and retry (LB might route to a free Pod next time)
-      console.log(`[${taskId}] Pod busy (503), retrying in 10s...`);
-      await new Promise((r) => setTimeout(r, 10_000));
-    } else {
-      throw new Error(`ExplainV API returned ${resp.status}: ${await resp.text()}`);
-    }
+  if (!resp.ok) {
+    throw new Error(`Pod returned ${resp.status}: ${await resp.text()}`);
   }
+
+  // 7. Mark task as running
+  const finalTasks = readTasks();
+  const ft = finalTasks.find((x) => x.id === taskId);
+  if (ft) {
+    ft.status = 'running';
+    ft.stage = 'submitted';
+    ft.updatedAt = new Date().toISOString();
+    writeTasks(finalTasks);
+  }
+
+  console.log(`[${taskId}] Task submitted to ${podName} (${serviceIP})`);
 }
 
-export { scaleDownOne };
+export { scaleDownOne, deletePodServiceByName };
 export default router;

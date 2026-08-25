@@ -1,0 +1,14 @@
+# Headless service required by StatefulSet for DNS.
+# Not used for traffic — each Pod gets its own LoadBalancer Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: explainv-api-headless
+  namespace: explainv
+spec:
+  selector:
+    app: explainv-api
+  ports:
+    - port: 8000
+      targetPort: 8000
+  clusterIP: None

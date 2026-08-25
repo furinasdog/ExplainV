@@ -1,6 +1,13 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/auth.js';
-import { listPods, deletePod, getReplicaCount, setReplicas } from '../services/cluster.js';
+import {
+  listPods,
+  deletePod,
+  getReplicaCount,
+  setReplicas,
+  listPodServices,
+  deletePodService,
+} from '../services/cluster.js';
 import { readTasks, writeTasks } from './store.js';
 
 const router = Router();
@@ -14,16 +21,27 @@ function requireAdmin(req, res, next) {
 
 router.use(authenticate, requireAdmin);
 
-// GET /api/admin/pods — list all ExplainV API Pods
+// GET /api/admin/pods
 router.get('/pods', async (_req, res) => {
   try {
     const pods = await listPods();
+    const services = await listPodServices();
     const replicaCount = await getReplicaCount();
     const tasks = readTasks().filter((t) => t.status === 'running' || t.status === 'starting');
 
+    // Merge service info into pod data
+    const podsWithServices = pods.map((pod) => {
+      const svc = services.find((s) => s.podName === pod.name);
+      return {
+        ...pod,
+        serviceIP: svc?.externalIP || null,
+        serviceName: svc?.name || null,
+      };
+    });
+
     res.json({
       desiredReplicas: replicaCount,
-      pods,
+      pods: podsWithServices,
       runningTasks: tasks.map(({ params, ...rest }) => rest),
     });
   } catch (err) {
@@ -31,24 +49,26 @@ router.get('/pods', async (_req, res) => {
   }
 });
 
-// DELETE /api/admin/pods/:name — force delete a Pod + cancel running tasks
+// DELETE /api/admin/pods/:name
 router.delete('/pods/:name', async (req, res) => {
   const podName = req.params.name;
 
   try {
-    // 1. Delete the Pod
+    // Delete Pod and its Service
     await deletePod(podName);
 
-    // 2. Scale down by 1 (otherwise deployment recreates the Pod)
+    // Scale down StatefulSet by 1
     const current = await getReplicaCount();
     if (current > 0) {
       await setReplicas(current - 1);
     }
 
-    // 3. Mark running tasks as failed
+    // Mark running tasks on this Pod as failed
     const tasks = readTasks();
-    const running = tasks.filter((t) => t.status === 'running' || t.status === 'starting');
-    for (const t of running) {
+    const affected = tasks.filter(
+      (t) => (t.status === 'running' || t.status === 'starting') && t.podName === podName
+    );
+    for (const t of affected) {
       t.status = 'failed';
       t.error = `Pod 被管理员强制删除 (${podName})`;
       t.updatedAt = new Date().toISOString();
@@ -56,15 +76,15 @@ router.delete('/pods/:name', async (req, res) => {
     writeTasks(tasks);
 
     res.json({
-      message: `Pod ${podName} 已删除，${running.length} 个任务已标记为失败`,
-      cancelledTasks: running.map((t) => t.id),
+      message: `Pod ${podName} 已删除，${affected.length} 个任务已标记为失败`,
+      cancelledTasks: affected.map((t) => t.id),
     });
   } catch (err) {
     res.status(500).json({ error: `删除 Pod 失败: ${err.message}` });
   }
 });
 
-// PUT /api/admin/pods/scale — manually set replica count
+// PUT /api/admin/pods/scale
 router.put('/pods/scale', async (req, res) => {
   const { replicas } = req.body;
   if (replicas === undefined || replicas < 0) {
@@ -74,7 +94,6 @@ router.put('/pods/scale', async (req, res) => {
   try {
     const newCount = await setReplicas(replicas);
 
-    // If scaling down to 0, cancel all running tasks
     if (newCount === 0) {
       const tasks = readTasks();
       const running = tasks.filter((t) => t.status === 'running' || t.status === 'starting');
@@ -92,7 +111,7 @@ router.put('/pods/scale', async (req, res) => {
   }
 });
 
-// POST /api/admin/tasks/cleanup — cancel all stuck running/starting tasks
+// POST /api/admin/tasks/cleanup
 router.post('/tasks/cleanup', (_req, res) => {
   const tasks = readTasks();
   let count = 0;
@@ -110,7 +129,7 @@ router.post('/tasks/cleanup', (_req, res) => {
   res.json({ message: `已清理 ${count} 个卡住的任务` });
 });
 
-// GET /api/admin/tasks — list all tasks (all users)
+// GET /api/admin/tasks
 router.get('/tasks', (_req, res) => {
   const tasks = readTasks()
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))

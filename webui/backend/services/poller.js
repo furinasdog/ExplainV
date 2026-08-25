@@ -1,7 +1,6 @@
 import cron from 'node-cron';
-import config from '../config.js';
 import { readTasks, writeTasks } from '../routes/store.js';
-import { scaleDownOne, scaleUpOne, waitForReady } from './cluster.js';
+import { scaleDownOne, scaleUpOne, waitForReady, createPodService, findAvailablePod, deletePodServiceByName } from './cluster.js';
 
 let polling = false;
 
@@ -24,115 +23,99 @@ export function startPoller() {
 }
 
 /**
- * Poll the ExplainV API once, then match status to the correct task by task_id.
+ * Poll each running task directly via its assigned Pod's Service IP.
+ * No LoadBalancer ambiguity — each task has its own dedicated IP.
  */
 async function pollAllTasks() {
   const tasks = readTasks();
   const running = tasks.filter((t) => t.status === 'running');
   if (running.length === 0) return;
 
-  // Poll API /status once
-  let status = null;
-  try {
-    const resp = await fetch(`${config.ackServiceUrl}/status`);
-    if (resp.ok) {
-      status = await resp.json();
+  for (const task of running) {
+    try {
+      await pollTask(task);
+    } catch (err) {
+      console.error(`Poll task ${task.id} error:`, err);
     }
-  } catch {
-    console.log('[poller] API unreachable');
+  }
+}
+
+async function pollTask(task) {
+  if (!task.serviceIP) {
+    console.log(`[${task.id}] No serviceIP assigned yet, skipping`);
+    return;
+  }
+
+  const podUrl = `http://${task.serviceIP}:8000`;
+
+  let status;
+  try {
+    const resp = await fetch(`${podUrl}/status`, { signal: AbortSignal.timeout(10000) });
+    if (!resp.ok) return;
+    status = await resp.json();
+  } catch (err) {
+    // Pod unreachable — might have been deleted
+    console.log(`[${task.id}] Pod ${task.podName} unreachable (${err.message})`);
+    const allTasks = readTasks();
+    const t = allTasks.find((x) => x.id === task.id);
+    if (t && t.status === 'running') {
+      t.status = 'failed';
+      t.error = 'Pod 不可达（可能已被回收）';
+      t.updatedAt = new Date().toISOString();
+      writeTasks(allTasks);
+      await cleanupPod(task);
+    }
     return;
   }
 
   const allTasks = readTasks();
+  const t = allTasks.find((x) => x.id === task.id);
+  if (!t || t.status !== 'running') return;
 
-  if (!status.busy && !status.result && !status.error) {
-    // API is idle with no result — all running tasks are stale
-    console.log(`[poller] API idle, ${running.length} stale task(s) — marking failed`);
-    for (const t of allTasks.filter((t) => t.status === 'running')) {
-      t.status = 'failed';
-      t.error = '任务进程丢失（Pod 可能已被回收）';
-      t.updatedAt = new Date().toISOString();
-    }
+  t.progress = status.progress || 0;
+  t.stage = status.stage || '';
+  t.updatedAt = new Date().toISOString();
+
+  if (!status.busy && status.result) {
+    console.log(`[${task.id}] Completed on ${task.podName}!`);
+    t.status = 'completed';
+    t.progress = 1;
+    t.stage = 'done';
+    t.videoUrl = status.result.video_url;
+    t.explanation = status.result.explanation;
+    t.code = status.result.code;
     writeTasks(allTasks);
-    return;
-  }
-
-  // Match by task_id
-  const apiTaskId = status.task_id;
-
-  if (apiTaskId) {
-    const matchedTask = allTasks.find((t) => t.id === apiTaskId && t.status === 'running');
-    if (matchedTask) {
-      matchedTask.progress = status.progress || 0;
-      matchedTask.stage = status.stage || '';
-      matchedTask.updatedAt = new Date().toISOString();
-
-      if (!status.busy && status.result) {
-        console.log(`[${apiTaskId}] Task completed!`);
-        matchedTask.status = 'completed';
-        matchedTask.progress = 1;
-        matchedTask.stage = 'done';
-        matchedTask.videoUrl = status.result.video_url;
-        matchedTask.explanation = status.result.explanation;
-        matchedTask.code = status.result.code;
-        writeTasks(allTasks);
-        await safeScaleDown(apiTaskId);
-      } else if (!status.busy && status.error) {
-        console.log(`[${apiTaskId}] Task failed: ${status.error}`);
-        matchedTask.status = 'failed';
-        matchedTask.error = status.error;
-        writeTasks(allTasks);
-        await safeScaleDown(apiTaskId);
-      } else {
-        writeTasks(allTasks);
-        console.log(`[${apiTaskId}] ${(status.progress * 100).toFixed(0)}% (${status.stage})`);
-      }
-    } else {
-      // task_id doesn't match any running task — might be stale
-      console.log(`[poller] API task_id ${apiTaskId} not found in running tasks`);
-      writeTasks(allTasks);
-    }
+    await cleanupPod(task);
+  } else if (!status.busy && status.error) {
+    console.log(`[${task.id}] Failed on ${task.podName}: ${status.error}`);
+    t.status = 'failed';
+    t.error = status.error;
+    writeTasks(allTasks);
+    await cleanupPod(task);
   } else {
-    // No task_id from API (old image?) — fallback: update oldest running task
-    const oldest = allTasks
-      .filter((t) => t.status === 'running')
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-
-    if (oldest) {
-      oldest.progress = status.progress || 0;
-      oldest.stage = status.stage || '';
-      oldest.updatedAt = new Date().toISOString();
-
-      if (!status.busy && status.result) {
-        oldest.status = 'completed';
-        oldest.progress = 1;
-        oldest.stage = 'done';
-        oldest.videoUrl = status.result.video_url;
-        oldest.explanation = status.result.explanation;
-        oldest.code = status.result.code;
-        writeTasks(allTasks);
-        await safeScaleDown(oldest.id);
-      } else if (!status.busy && status.error) {
-        oldest.status = 'failed';
-        oldest.error = status.error;
-        writeTasks(allTasks);
-        await safeScaleDown(oldest.id);
-      } else {
-        writeTasks(allTasks);
-      }
-    }
+    writeTasks(allTasks);
+    console.log(`[${task.id}] ${(status.progress * 100).toFixed(0)}% (${status.stage}) on ${task.podName}`);
   }
 }
 
-async function safeScaleDown(taskId) {
+/**
+ * Clean up after a task finishes: scale down + delete per-pod Service.
+ */
+async function cleanupPod(task) {
   try {
-    console.log(`[${taskId}] Scaling down Pod...`);
+    if (task.podName) {
+      console.log(`[${task.id}] Cleaning up Pod ${task.podName}...`);
+      await deletePodServiceByName(task.podName);
+    }
     await scaleDownOne();
   } catch (err) {
-    console.error(`[${taskId}] Scale down failed:`, err);
+    console.error(`[${task.id}] Cleanup failed:`, err);
   }
 }
 
+/**
+ * Process queued tasks when capacity is available.
+ */
 async function processQueuedTasks() {
   const tasks = readTasks();
   const running = tasks.filter((t) => t.status === 'running' || t.status === 'starting');
@@ -150,45 +133,54 @@ async function processQueuedTasks() {
   writeTasks(tasks);
 
   try {
-    await scaleUpOne();
-    const newCount = running.length + 1;
+    // Scale up
+    const newCount = await scaleUpOne();
     await waitForReady(newCount, 300_000);
 
+    // Find available Pod and create Service
+    const podName = await findAvailablePod();
+    if (!podName) throw new Error('No available Pod');
+
+    const serviceIP = await createPodService(podName);
+
+    // Update task with pod info
+    const allTasks = readTasks();
+    const t = allTasks.find((x) => x.id === nextTask.id);
+    if (t) {
+      t.podName = podName;
+      t.serviceIP = serviceIP;
+    }
+
+    // Submit directly to this Pod
+    const podUrl = `http://${serviceIP}:8000`;
     const { problemText, problemImageBase64, quality, sections, briefSolution } = nextTask.params;
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      const resp = await fetch(`${config.ackServiceUrl}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          problem_text: problemText,
-          problem_image_base64: problemImageBase64,
-          quality: quality || 'l',
-          sections: sections || null,
-          brief_solution: briefSolution || false,
-          task_id: nextTask.id,
-        }),
-      });
+    console.log(`[queue] Submitting ${nextTask.id} to ${podName} (${serviceIP})...`);
 
-      if (resp.ok) {
-        const allTasks = readTasks();
-        const t = allTasks.find((x) => x.id === nextTask.id);
-        if (t) {
-          t.status = 'running';
-          t.stage = 'submitted';
-          t.updatedAt = new Date().toISOString();
-          writeTasks(allTasks);
-        }
-        console.log(`[queue] Task ${nextTask.id} started`);
-        return;
-      }
+    const resp = await fetch(`${podUrl}/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        problem_text: problemText,
+        problem_image_base64: problemImageBase64,
+        quality: quality || 'l',
+        sections: sections || null,
+        brief_solution: briefSolution || false,
+        task_id: nextTask.id,
+      }),
+    });
 
-      if (resp.status === 503 && attempt < 5) {
-        await new Promise((r) => setTimeout(r, 10_000));
-      } else {
-        throw new Error(`API returned ${resp.status}`);
-      }
+    if (!resp.ok) throw new Error(`Pod returned ${resp.status}`);
+
+    const finalTasks = readTasks();
+    const ft = finalTasks.find((x) => x.id === nextTask.id);
+    if (ft) {
+      ft.status = 'running';
+      ft.stage = 'submitted';
+      ft.updatedAt = new Date().toISOString();
+      writeTasks(finalTasks);
     }
+    console.log(`[queue] Task ${nextTask.id} started on ${podName}`);
   } catch (err) {
     console.error(`[queue] Failed to start ${nextTask.id}:`, err);
     const allTasks = readTasks();

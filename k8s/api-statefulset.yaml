@@ -1,12 +1,12 @@
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: explainv-api
   namespace: explainv
   labels:
     app: explainv-api
 spec:
-  # 默认 0 副本，由 WebUI 后端按需扩缩
+  serviceName: explainv-api-headless
   replicas: 0
   selector:
     matchLabels:
@@ -19,7 +19,7 @@ spec:
       dnsPolicy: Default
       containers:
         - name: api
-          image: crpi-75bc6vhx9od6qai2.cn-hangzhou.personal.cr.aliyuncs.com/explainv/explainv:v1.3.3
+          image: crpi-75bc6vhx9od6qai2.cn-hangzhou.personal.cr.aliyuncs.com/explainv/explainv:v1.3.2
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -28,16 +28,13 @@ spec:
                 name: explainv-config
             - secretRef:
                 name: explainv-secrets
-          volumeMounts:
-            - name: data-volume
-              mountPath: /app/data
           resources:
             requests:
               cpu: "2"
               memory: 4Gi
             limits:
-              cpu: "4"                  # Manim 渲染吃 CPU
-              memory: 8Gi               # TeX + Manim 吃内存
+              cpu: "4"
+              memory: 8Gi
           livenessProbe:
             httpGet:
               path: /health
@@ -52,8 +49,3 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
-            # busy 时不拒绝（避免任务执行中被摘除），
-            # 由 UI 后端通过 /health 的 busy 字段决定是否发送新任务
-      volumes:
-        - name: data-volume
-          emptyDir: {}
