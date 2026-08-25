@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: explainv-config
+  namespace: explainv
+data:
+  EXPLAINV_TASK_TIMEOUT: "7200"
+  EXPLAINV_DEFAULT_QUALITY: "l"
+  EXPLAINV_CORS_ORIGINS: "*"

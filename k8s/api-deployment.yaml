@@ -1,0 +1,59 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: explainv-api
+  namespace: explainv
+  labels:
+    app: explainv-api
+spec:
+  # 每个 Pod 同时处理 1 个任务，通过增加 replicas 水平扩展
+  replicas: 2
+  selector:
+    matchLabels:
+      app: explainv-api
+  template:
+    metadata:
+      labels:
+        app: explainv-api
+    spec:
+      containers:
+        - name: api
+          image: explainv:latest        # 替换为实际镜像地址（如 ACR）
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+          envFrom:
+            - configMapRef:
+                name: explainv-config
+            - secretRef:
+                name: explainv-secrets
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"                  # Manim 渲染吃 CPU
+              memory: 8Gi               # TeX + Manim 吃内存
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            # busy 时不拒绝（避免任务执行中被摘除），
+            # 由 UI 后端通过 /health 的 busy 字段决定是否发送新任务
+      volumes:
+        - name: data-volume
+          persistentVolumeClaim:
+            claimName: explainv-data

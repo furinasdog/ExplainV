@@ -1,0 +1,51 @@
+# Version control
+.git
+.gitignore
+
+# Data and media (generated at runtime)
+data/
+media/
+
+# Python caches
+__pycache__/
+*.py[codz]
+*.pyc
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+.coverage.*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.env
+.env.local
+
+# Docs
+README.md
+LICENSE
+*.md
+
+# Tests (not needed in production image)
+tests/
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Kubernetes
+k8s/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log

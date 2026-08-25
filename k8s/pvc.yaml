@@ -1,0 +1,18 @@
+# 共享持久存储 —— API 和 Worker 共享生成的视频文件
+#
+# 阿里云 ACK 推荐使用 NAS（ReadWriteMany）或 OSS CSI 驱动
+# 阿里云 ASK 可以使用云盘（ReadWriteOnce，仅限单副本 Worker）
+#
+# 以下使用通用 PVC 模板，实际部署时请配置 StorageClass
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: explainv-data
+  namespace: explainv
+spec:
+  accessModes:
+    - ReadWriteMany           # 需要多 Worker 同时读写
+  resources:
+    requests:
+      storage: 50Gi           # 根据视频生成量调整
+  # storageClassName: alicloud-nas   # 阿里云 NAS（按需取消注释）
