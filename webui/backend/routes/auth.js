@@ -14,26 +14,67 @@ const DEVICES_FILE = resolve(config.dataDir, 'devices.json');
 function readUsers() {
   if (!existsSync(USERS_FILE)) return {};
   try {
-    return JSON.parse(readFileSync(USERS_FILE, 'utf-8'));
+    const raw = JSON.parse(readFileSync(USERS_FILE, 'utf-8'));
+    // 防御：如果文件被存成了数组（纯数字用户名导致 JS 对象变稀疏数组），
+    // 把数组元素迁移回普通对象
+    if (Array.isArray(raw)) {
+      const obj = {};
+      raw.forEach((item, idx) => {
+        if (item && typeof item === 'object' && item.hash) {
+          obj[String(idx)] = item;
+        }
+      });
+      // 同时拷贝数组上的命名属性（如 arr['Admin']）
+      for (const key of Object.keys(raw)) {
+        if (isNaN(Number(key)) && raw[key]?.hash) {
+          obj[key] = raw[key];
+        }
+      }
+      return obj;
+    }
+    if (raw && typeof raw === 'object') return raw;
+    return {};
   } catch {
     return {};
   }
 }
 
 function writeUsers(users) {
+  // 确保始终写入普通对象，防止被序列化为数组
+  if (Array.isArray(users)) {
+    const obj = {};
+    users.forEach((item, idx) => {
+      if (item && typeof item === 'object') obj[String(idx)] = item;
+    });
+    for (const key of Object.keys(users)) {
+      if (isNaN(Number(key))) obj[key] = users[key];
+    }
+    users = obj;
+  }
   writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
 }
 
 function readDevices() {
   if (!existsSync(DEVICES_FILE)) return {};
   try {
-    return JSON.parse(readFileSync(DEVICES_FILE, 'utf-8'));
+    const raw = JSON.parse(readFileSync(DEVICES_FILE, 'utf-8'));
+    if (Array.isArray(raw)) {
+      const obj = {};
+      raw.forEach((item, idx) => { if (item) obj[String(idx)] = item; });
+      return obj;
+    }
+    return (raw && typeof raw === 'object') ? raw : {};
   } catch {
     return {};
   }
 }
 
 function writeDevices(devices) {
+  if (Array.isArray(devices)) {
+    const obj = {};
+    devices.forEach((item, idx) => { if (item) obj[String(idx)] = item; });
+    devices = obj;
+  }
   writeFileSync(DEVICES_FILE, JSON.stringify(devices, null, 2), 'utf-8');
 }
 
