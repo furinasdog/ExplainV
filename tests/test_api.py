@@ -1,7 +1,6 @@
 """Tests for the FastAPI service (src/api/)."""
 
-import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,7 +11,6 @@ from src.api.schemas import (
     TaskRequest,
     TaskResult,
 )
-
 
 # ---------------------------------------------------------------------------
 # Schema tests
@@ -91,7 +89,7 @@ class TestEndpoints:
     def _setup_client(self):
         from fastapi.testclient import TestClient
 
-        from src.api.app import app, _reset_state
+        from src.api.app import _reset_state, app
 
         _reset_state()
         self.client = TestClient(app)

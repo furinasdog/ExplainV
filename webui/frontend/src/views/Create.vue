@@ -16,7 +16,7 @@
         <div class="divider"><span>OR</span></div>
         <label>Upload problem image</label>
         <input type="file" accept="image/*" @change="handleImageUpload" class="file-input" />
-        <img v-if="imagePreview" :src="imagePreview" class="image-preview" />
+        <img v-if="imagePreview" :src="imagePreview" class="image-preview" alt="问题图片预览" />
       </section>
 
       <section class="form-section">

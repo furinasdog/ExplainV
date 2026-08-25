@@ -44,7 +44,7 @@ async function handleRegister() {
   loading.value = true;
   try {
     await user.register(username.value, password.value);
-    router.push('/');
+    await router.push('/');
   } catch (err) {
     error.value = err.response?.data?.error || 'Registration failed';
   } finally {
