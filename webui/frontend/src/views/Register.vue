@@ -1,21 +1,21 @@
 <template>
   <div class="auth-page">
     <div class="auth-card card">
-      <h1>Create your account</h1>
+      <h1>创建账号</h1>
       <form @submit.prevent="handleRegister">
-        <label>Username</label>
-        <input class="input" v-model="username" type="text" placeholder="Pick a username" required />
-        <label>Password</label>
-        <input class="input" v-model="password" type="password" placeholder="Create a password" required />
-        <label>Confirm password</label>
-        <input class="input" v-model="confirmPassword" type="password" placeholder="Confirm password" required />
+        <label>用户名</label>
+        <input class="input" v-model="username" type="text" placeholder="请输入用户名" required />
+        <label>密码</label>
+        <input class="input" v-model="password" type="password" placeholder="请设置密码（至少6位）" required />
+        <label>确认密码</label>
+        <input class="input" v-model="confirmPassword" type="password" placeholder="请再次输入密码" required />
         <p v-if="error" class="flash-error">{{ error }}</p>
         <button class="btn btn-primary submit-btn" type="submit" :disabled="loading">
-          {{ loading ? 'Creating account...' : 'Create account' }}
+          {{ loading ? '注册中...' : '注册' }}
         </button>
       </form>
       <p class="auth-footer">
-        Already have an account? <router-link to="/login">Sign in</router-link>.
+        已有账号？<router-link to="/login">立即登录</router-link>
       </p>
     </div>
   </div>
@@ -25,6 +25,7 @@
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useUserStore } from '../stores/user.js';
+import { generateFingerprint } from '../utils/fingerprint.js';
 
 const router = useRouter();
 const user = useUserStore();
@@ -38,15 +39,16 @@ const loading = ref(false);
 async function handleRegister() {
   error.value = '';
   if (password.value !== confirmPassword.value) {
-    error.value = 'Passwords do not match';
+    error.value = '两次输入的密码不一致';
     return;
   }
   loading.value = true;
   try {
-    await user.register(username.value, password.value);
+    const fingerprint = await generateFingerprint();
+    await user.register(username.value, password.value, fingerprint);
     await router.push('/');
   } catch (err) {
-    error.value = err.response?.data?.error || 'Registration failed';
+    error.value = err.response?.data?.error || '注册失败';
   } finally {
     loading.value = false;
   }

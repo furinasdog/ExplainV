@@ -2,7 +2,7 @@ import * as k8s from '@kubernetes/client-node';
 import { existsSync } from 'fs';
 import config from '../config.js';
 
-const MAX_PODS = 10;
+const MAX_PODS = 20;
 
 let kc = null;
 let appsApi = null;
@@ -64,7 +64,7 @@ export async function setReplicas(replicas) {
 export async function scaleUpOne() {
   const current = await getReplicaCount();
   if (current >= MAX_PODS) {
-    throw new Error(`Max pods reached (${MAX_PODS})`);
+    throw new Error(`已达到最大 Pod 数量 (${MAX_PODS})`);
   }
   return await setReplicas(current + 1);
 }
@@ -200,6 +200,31 @@ export async function deletePod(podName) {
 
   // Also delete the associated Service
   await deletePodServiceByName(podName).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Pod logs (admin)
+// ---------------------------------------------------------------------------
+
+/**
+ * Get logs from a specific Pod.
+ * @param {string} podName - Pod name
+ * @param {object} [options] - { container, tailLines, sinceSeconds }
+ * @returns {string} log text
+ */
+export async function getPodLogs(podName, options = {}) {
+  const { coreApi } = getClient();
+  const { tailLines = 500, sinceSeconds = 3600 } = options;
+
+  const resp = await coreApi.readNamespacedPodLog({
+    name: podName,
+    namespace: config.ackNamespace,
+    tailLines,
+    sinceSeconds,
+    timestamps: true,
+  });
+
+  return resp.body || resp || '';
 }
 
 // ---------------------------------------------------------------------------

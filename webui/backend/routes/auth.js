@@ -9,6 +9,7 @@ import { authenticate } from '../middleware/auth.js';
 
 const router = Router();
 const USERS_FILE = resolve(config.dataDir, 'users.json');
+const DEVICES_FILE = resolve(config.dataDir, 'devices.json');
 
 function readUsers() {
   if (!existsSync(USERS_FILE)) return {};
@@ -23,6 +24,19 @@ function writeUsers(users) {
   writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), 'utf-8');
 }
 
+function readDevices() {
+  if (!existsSync(DEVICES_FILE)) return {};
+  try {
+    return JSON.parse(readFileSync(DEVICES_FILE, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeDevices(devices) {
+  writeFileSync(DEVICES_FILE, JSON.stringify(devices, null, 2), 'utf-8');
+}
+
 /**
  * Ensure default admin account exists on startup.
  */
@@ -34,6 +48,7 @@ async function ensureDefaultAdmin() {
       hash,
       role: 'admin',
       createdAt: new Date().toISOString(),
+      deviceFingerprint: 'system-default-admin',
     };
     writeUsers(users);
     console.log('Default admin account created (Admin / Admin@321)');
@@ -49,7 +64,7 @@ ensureDefaultAdmin();
 
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, deviceFingerprint } = req.body;
 
   if (!username || !password) {
     return res.status(400).json({ error: '用户名和密码不能为空' });
@@ -61,14 +76,37 @@ router.post('/register', async (req, res) => {
     return res.status(400).json({ error: '密码长度至少 6 个字符' });
   }
 
+  // 设备指纹限制：每台设备只能创建一个账号
+  if (deviceFingerprint) {
+    const devices = readDevices();
+    if (devices[deviceFingerprint]) {
+      return res.status(409).json({ error: '该设备已注册过账号，每台设备仅允许注册一个账号' });
+    }
+  }
+
   const users = readUsers();
   if (users[username]) {
     return res.status(409).json({ error: '用户名已存在' });
   }
 
   const hash = await bcrypt.hash(password, 10);
-  users[username] = { hash, role: 'user', createdAt: new Date().toISOString() };
+  users[username] = {
+    hash,
+    role: 'user',
+    createdAt: new Date().toISOString(),
+    deviceFingerprint: deviceFingerprint || null,
+  };
   writeUsers(users);
+
+  // 记录设备指纹
+  if (deviceFingerprint) {
+    const devices = readDevices();
+    devices[deviceFingerprint] = {
+      username,
+      registeredAt: new Date().toISOString(),
+    };
+    writeDevices(devices);
+  }
 
   const token = jwt.sign({ username, role: 'user' }, config.jwtSecret, { expiresIn: '7d' });
   res.json({ token, username, role: 'user' });
@@ -127,11 +165,12 @@ router.get('/admin/users', authenticate, requireAdmin, (_req, res) => {
     username,
     role: data.role || 'user',
     createdAt: data.createdAt || null,
+    deviceFingerprint: data.deviceFingerprint || null,
   }));
   res.json(list);
 });
 
-// POST /api/auth/admin/users — create user (admin only)
+// POST /api/auth/admin/users — create user (admin only, bypasses device check)
 router.post('/admin/users', authenticate, requireAdmin, async (req, res) => {
   const { username, password, role } = req.body;
 
@@ -149,6 +188,7 @@ router.post('/admin/users', authenticate, requireAdmin, async (req, res) => {
     hash,
     role: role === 'admin' ? 'admin' : 'user',
     createdAt: new Date().toISOString(),
+    deviceFingerprint: null,
   };
   writeUsers(users);
 
@@ -166,6 +206,14 @@ router.delete('/admin/users/:username', authenticate, requireAdmin, (req, res) =
   const users = readUsers();
   if (!users[username]) {
     return res.status(404).json({ error: '用户不存在' });
+  }
+
+  // 同时清除设备指纹记录
+  const fp = users[username].deviceFingerprint;
+  if (fp) {
+    const devices = readDevices();
+    delete devices[fp];
+    writeDevices(devices);
   }
 
   delete users[username];

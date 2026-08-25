@@ -1,19 +1,19 @@
 <template>
   <div class="auth-page">
     <div class="auth-card card">
-      <h1>Sign in to ExplainV</h1>
+      <h1>登录 ExplainV</h1>
       <form @submit.prevent="handleLogin">
-        <label>Username</label>
-        <input class="input" v-model="username" type="text" placeholder="Username" required />
-        <label>Password</label>
-        <input class="input" v-model="password" type="password" placeholder="Password" required />
+        <label>用户名</label>
+        <input class="input" v-model="username" type="text" placeholder="请输入用户名" required />
+        <label>密码</label>
+        <input class="input" v-model="password" type="password" placeholder="请输入密码" required />
         <p v-if="error" class="flash-error">{{ error }}</p>
         <button class="btn btn-primary submit-btn" type="submit" :disabled="loading">
-          {{ loading ? 'Signing in...' : 'Sign in' }}
+          {{ loading ? '登录中...' : '登录' }}
         </button>
       </form>
       <p class="auth-footer">
-        New to ExplainV? <router-link to="/register">Create an account</router-link>.
+        还没有账号？<router-link to="/register">立即注册</router-link>
       </p>
     </div>
   </div>
@@ -39,7 +39,7 @@ async function handleLogin() {
     await user.login(username.value, password.value);
     await router.push('/');
   } catch (err) {
-    error.value = err.response?.data?.error || 'Login failed';
+    error.value = err.response?.data?.error || '登录失败';
   } finally {
     loading.value = false;
   }

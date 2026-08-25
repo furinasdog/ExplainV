@@ -2,17 +2,17 @@
   <div>
     <div class="page-header">
       <div>
-        <h2>Tasks</h2>
+        <h2>我的任务</h2>
       </div>
       <router-link to="/create">
-        <button class="btn btn-primary">New task</button>
+        <button class="btn btn-primary">新建任务</button>
       </router-link>
     </div>
 
-    <div v-if="loading" class="blankslate">Loading...</div>
+    <div v-if="loading" class="blankslate">加载中...</div>
     <div v-else-if="tasks.length === 0" class="blankslate card">
-      <p>No tasks yet</p>
-      <router-link to="/create">Create your first task →</router-link>
+      <p>暂无任务</p>
+      <router-link to="/create">创建你的第一个任务 →</router-link>
     </div>
 
     <div v-else class="task-list">

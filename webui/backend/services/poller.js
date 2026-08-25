@@ -2,6 +2,8 @@ import cron from 'node-cron';
 import { readTasks, writeTasks } from '../routes/store.js';
 import { scaleDownOne, scaleUpOne, waitForReady, createPodService, findAvailablePod, deletePodServiceByName } from './cluster.js';
 
+const MAX_PODS = 20;
+
 let polling = false;
 
 export function startPoller() {
@@ -85,12 +87,14 @@ async function pollTask(task) {
     t.explanation = status.result.explanation;
     t.code = status.result.code;
     writeTasks(allTasks);
+    // 任务成功完成，必须释放 POD
     await cleanupPod(task);
   } else if (!status.busy && status.error) {
     console.log(`[${task.id}] Failed on ${task.podName}: ${status.error}`);
     t.status = 'failed';
     t.error = status.error;
     writeTasks(allTasks);
+    // 任务失败，释放 POD
     await cleanupPod(task);
   } else {
     writeTasks(allTasks);
@@ -100,21 +104,25 @@ async function pollTask(task) {
 
 /**
  * Clean up after a task finishes: scale down + delete per-pod Service.
+ * 所有运行完成/失败的任务都必须释放 POD 资源。
  */
 async function cleanupPod(task) {
   try {
     if (task.podName) {
-      console.log(`[${task.id}] Cleaning up Pod ${task.podName}...`);
+      console.log(`[${task.id}] 释放 Pod ${task.podName}...`);
       await deletePodServiceByName(task.podName);
     }
     await scaleDownOne();
+    console.log(`[${task.id}] Pod 资源已释放`);
   } catch (err) {
-    console.error(`[${task.id}] Cleanup failed:`, err);
+    console.error(`[${task.id}] 释放失败:`, err);
   }
 }
 
 /**
  * Process queued tasks when capacity is available.
+ * 当有机器运行完之后释放机器，然后从队列中取出任务创建。
+ * 释放后空出位置再增加。
  */
 async function processQueuedTasks() {
   const tasks = readTasks();
@@ -122,10 +130,10 @@ async function processQueuedTasks() {
   const queued = tasks.filter((t) => t.status === 'queued')
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
-  if (queued.length === 0 || running.length >= 10) return;
+  if (queued.length === 0 || running.length >= MAX_PODS) return;
 
   const nextTask = queued[0];
-  console.log(`[queue] Starting queued task ${nextTask.id}...`);
+  console.log(`[queue] 启动排队任务 ${nextTask.id}...`);
 
   nextTask.status = 'starting';
   nextTask.stage = 'scaling_up';
@@ -140,11 +148,11 @@ async function processQueuedTasks() {
     // Find available Pod (exclude those already assigned to running tasks)
     const tasksForExclude = readTasks();
     const usedPods = tasksForExclude
-      .filter((t) => t.status === 'running' || t.status === 'submitted' || t.status === 'queued')
+      .filter((t) => t.status === 'running' || t.status === 'submitted' || t.status === 'starting')
       .map((t) => t.podName)
       .filter(Boolean);
     const podName = await findAvailablePod(usedPods);
-    if (!podName) throw new Error('No available Pod');
+    if (!podName) throw new Error('没有可用的 Pod');
 
     const podAddr = await createPodService(podName);
 
@@ -156,11 +164,11 @@ async function processQueuedTasks() {
       t.serviceIP = podAddr;
     }
 
-    // Submit directly to this Pod via shared LB
+    // Submit directly to this Pod
     const podUrl = `http://${podAddr}:8000`;
     const { problemText, problemImageBase64, quality, sections, briefSolution } = nextTask.params;
 
-    console.log(`[queue] Submitting ${nextTask.id} to ${podName} (${podAddr})...`);
+    console.log(`[queue] 提交 ${nextTask.id} 到 ${podName} (${podAddr})...`);
 
     const resp = await fetch(`${podUrl}/tasks`, {
       method: 'POST',
@@ -185,9 +193,9 @@ async function processQueuedTasks() {
       ft.updatedAt = new Date().toISOString();
       writeTasks(finalTasks);
     }
-    console.log(`[queue] Task ${nextTask.id} started on ${podName}`);
+    console.log(`[queue] 任务 ${nextTask.id} 已在 ${podName} 上启动`);
   } catch (err) {
-    console.error(`[queue] Failed to start ${nextTask.id}:`, err);
+    console.error(`[queue] 启动 ${nextTask.id} 失败:`, err);
     const allTasks = readTasks();
     const t = allTasks.find((x) => x.id === nextTask.id);
     if (t) {

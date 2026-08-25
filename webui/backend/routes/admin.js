@@ -6,6 +6,7 @@ import {
   getReplicaCount,
   setReplicas,
   getPodServiceMap,
+  getPodLogs,
 } from '../services/cluster.js';
 import { readTasks, writeTasks } from './store.js';
 
@@ -44,6 +45,20 @@ router.get('/pods', async (_req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: `获取 Pod 列表失败: ${err.message}` });
+  }
+});
+
+// GET /api/admin/pods/:name/logs — get Pod logs
+router.get('/pods/:name/logs', async (req, res) => {
+  const podName = req.params.name;
+  const tailLines = parseInt(req.query.tailLines) || 500;
+  const sinceSeconds = parseInt(req.query.sinceSeconds) || 3600;
+
+  try {
+    const logs = await getPodLogs(podName, { tailLines, sinceSeconds });
+    res.json({ podName, logs });
+  } catch (err) {
+    res.status(500).json({ error: `获取 Pod 日志失败: ${err.message}` });
   }
 });
 

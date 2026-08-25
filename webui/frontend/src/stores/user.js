@@ -24,10 +24,11 @@ export const useUserStore = defineStore('user', () => {
     api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
   }
 
-  async function register(user, pass) {
+  async function register(user, pass, deviceFingerprint) {
     const { data } = await api.post('/api/auth/register', {
       username: user,
       password: pass,
+      deviceFingerprint: deviceFingerprint || null,
     });
     token.value = data.token;
     username.value = data.username;

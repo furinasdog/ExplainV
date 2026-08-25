@@ -20,6 +20,11 @@
         </div>
       </div>
 
+      <!-- Queued -->
+      <div v-if="task.status === 'queued'" class="queued-info">
+        <span>🕐 任务排队中，等待空闲资源...</span>
+      </div>
+
       <!-- Error -->
       <div v-if="task.error" class="error-box">
         {{ task.error }}
@@ -28,10 +33,10 @@
       <!-- Result -->
       <div v-if="task.status === 'completed'" class="result-section">
         <a v-if="task.videoUrl" :href="task.videoUrl" target="_blank" class="btn btn-sm btn-primary">
-          ⬇ Download video
+          ⬇ 下载视频
         </a>
         <details v-if="task.explanation" class="explanation">
-          <summary>View explanation</summary>
+          <summary>查看讲解内容</summary>
           <pre class="explanation-text">{{ task.explanation }}</pre>
         </details>
       </div>
@@ -45,25 +50,25 @@ import { computed } from 'vue';
 const props = defineProps({ task: { type: Object, required: true } });
 
 const stageMap = {
-  scaling_up: 'Starting cluster',
-  submitted: 'Submitted',
-  initializing: 'Initializing',
-  explanation: 'Generating explanation',
-  code_generation: 'Generating code',
-  code_reviewing: 'Reviewing code',
-  rendering: 'Rendering video',
-  code_fixing: 'Auto-fixing code',
-  done: 'Done',
-  queued: 'Queued',
+  scaling_up: '启动集群中',
+  submitted: '已提交',
+  initializing: '初始化中',
+  explanation: '生成讲解中',
+  code_generation: '生成代码中',
+  code_reviewing: '审查代码中',
+  rendering: '渲染视频中',
+  code_fixing: '自动修复代码中',
+  done: '已完成',
+  queued: '排队中',
 };
 
 const statusMap = {
-  starting: 'Starting',
-  running: 'Running',
-  completed: 'Completed',
-  failed: 'Failed',
-  cancelled: 'Cancelled',
-  queued: 'Queued',
+  starting: '启动中',
+  running: '运行中',
+  completed: '已完成',
+  failed: '失败',
+  cancelled: '已取消',
+  queued: '排队中',
 };
 
 const statusLabel = computed(() => statusMap[props.task.status] || props.task.status);
@@ -109,6 +114,14 @@ function formatTime(iso) {
   margin-top: 4px;
   font-size: 12px;
   color: var(--color-text-secondary);
+}
+.queued-info {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: var(--color-attention-subtle, rgba(210, 153, 34, 0.1));
+  color: var(--color-attention, #9a6700);
+  border-radius: var(--radius-md);
+  font-size: 13px;
 }
 .error-box {
   margin-top: 8px;

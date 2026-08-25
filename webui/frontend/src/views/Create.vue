@@ -1,42 +1,42 @@
 <template>
   <div>
     <div class="page-header">
-      <h2>New task</h2>
+      <h2>新建任务</h2>
     </div>
 
     <form @submit.prevent="handleSubmit" class="form-card card">
       <section class="form-section">
-        <h3>Problem input</h3>
-        <label>Problem text</label>
+        <h3>题目输入</h3>
+        <label>题目文本</label>
         <textarea
           v-model="problemText"
           rows="5"
-          placeholder="e.g. Given a right triangle with legs 3 and 4, find the hypotenuse."
+          placeholder="例如：已知直角三角形两直角边分别为3和4，求斜边长度。"
         ></textarea>
-        <div class="divider"><span>OR</span></div>
-        <label>Upload problem image</label>
+        <div class="divider"><span>或</span></div>
+        <label>上传题目图片</label>
         <input type="file" accept="image/*" @change="handleImageUpload" class="file-input" />
-        <img v-if="imagePreview" :src="imagePreview" class="image-preview" alt="问题图片预览" />
+        <img v-if="imagePreview" :src="imagePreview" class="image-preview" alt="题目图片预览" />
       </section>
 
       <section class="form-section">
-        <h3>Voice</h3>
-        <label>Reference audio (optional, for voice cloning)</label>
+        <h3>语音设置</h3>
+        <label>参考音频（可选，用于语音克隆）</label>
         <input type="file" accept="audio/*" @change="handleAudioUpload" class="file-input" />
-        <p v-if="audioName" class="hint">Selected: {{ audioName }}</p>
+        <p v-if="audioName" class="hint">已选择: {{ audioName }}</p>
       </section>
 
       <section class="form-section">
-        <h3>Settings</h3>
-        <label>Quality</label>
+        <h3>参数设置</h3>
+        <label>画质</label>
         <select v-model="quality">
-          <option value="l">Low (480p, fast)</option>
-          <option value="m">Medium (720p)</option>
-          <option value="h">High (1080p)</option>
-          <option value="k">Ultra HD (4K, slow)</option>
+          <option value="l">低清 (480p，快速)</option>
+          <option value="m">标清 (720p)</option>
+          <option value="h">高清 (1080p)</option>
+          <option value="k">超高清 (4K，较慢)</option>
         </select>
 
-        <label>Explanation modules</label>
+        <label>讲解模块</label>
         <div class="checkbox-group">
           <label v-for="s in sectionOptions" :key="s.key" class="checkbox-item">
             <input type="checkbox" :value="s.key" v-model="selectedSections" />
@@ -46,7 +46,7 @@
 
         <label v-if="selectedSections.includes('solution_process')" class="checkbox-item" style="margin-top: 8px;">
           <input type="checkbox" v-model="briefSolution" />
-          Brief solution (outline only)
+          简略解答（仅展示解题思路）
         </label>
       </section>
 
@@ -54,7 +54,7 @@
 
       <div class="form-actions">
         <button class="btn btn-primary" type="submit" :disabled="loading">
-          {{ loading ? 'Submitting...' : 'Submit task' }}
+          {{ loading ? '提交中...' : '提交任务' }}
         </button>
       </div>
     </form>
@@ -111,7 +111,7 @@ function handleAudioUpload(e) {
 async function handleSubmit() {
   error.value = '';
   if (!problemText.value.trim() && !problemImageBase64.value) {
-    error.value = 'Please enter problem text or upload an image';
+    error.value = '请输入题目文本或上传题目图片';
     return;
   }
   loading.value = true;
@@ -126,7 +126,7 @@ async function handleSubmit() {
     });
     router.push('/');
   } catch (err) {
-    error.value = err.response?.data?.error || 'Submission failed';
+    error.value = err.response?.data?.error || '提交失败';
   } finally {
     loading.value = false;
   }

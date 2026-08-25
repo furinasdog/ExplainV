@@ -12,6 +12,8 @@ import {
   deletePodServiceByName,
 } from '../services/cluster.js';
 
+const MAX_PODS = 20;
+
 const router = Router();
 
 router.use(authenticate);
@@ -25,6 +27,16 @@ router.post('/', async (req, res) => {
   }
 
   const tasks = readTasks();
+  const username = req.user.username;
+
+  // 限制：每个账号只能有一个运行中/排队中的任务
+  const userActiveTasks = tasks.filter(
+    (t) => t.username === username && ['running', 'starting', 'queued'].includes(t.status)
+  );
+  if (userActiveTasks.length > 0) {
+    return res.status(400).json({ error: '您已有一个正在处理或排队中的任务，请等待完成后再创建新任务' });
+  }
+
   const taskId = uuid();
   const now = new Date().toISOString();
 
@@ -33,10 +45,10 @@ router.post('/', async (req, res) => {
 
   const task = {
     id: taskId,
-    username: req.user.username,
-    status: runningCount >= 10 ? 'queued' : 'starting',
+    username,
+    status: runningCount >= MAX_PODS ? 'queued' : 'starting',
     progress: 0,
-    stage: runningCount >= 10 ? 'queued' : 'scaling_up',
+    stage: runningCount >= MAX_PODS ? 'queued' : 'scaling_up',
     videoUrl: null,
     explanation: null,
     code: null,
@@ -126,7 +138,7 @@ async function submitTask(taskId) {
   console.log(`[${taskId}] Finding available Pod...`);
   const podName = await findAvailablePod(usedPods);
   if (!podName) {
-    throw new Error('No available Pod found');
+    throw new Error('没有可用的 Pod');
   }
   console.log(`[${taskId}] Assigned Pod: ${podName}`);
 
