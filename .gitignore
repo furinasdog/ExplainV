@@ -239,6 +239,7 @@ webui/backend/data/
 webui/backend/node_modules/
 webui/frontend/node_modules/
 webui/frontend/dist/
+webui/frontend/.vite/
 webui/node_modules/
 
 # Logs
