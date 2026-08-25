@@ -137,25 +137,30 @@ async function processQueuedTasks() {
     const newCount = await scaleUpOne();
     await waitForReady(newCount, 300_000);
 
-    // Find available Pod and create Service
-    const podName = await findAvailablePod();
+    // Find available Pod (exclude those already assigned to running tasks)
+    const tasksForExclude = readTasks();
+    const usedPods = tasksForExclude
+      .filter((t) => t.status === 'running' || t.status === 'submitted' || t.status === 'queued')
+      .map((t) => t.podName)
+      .filter(Boolean);
+    const podName = await findAvailablePod(usedPods);
     if (!podName) throw new Error('No available Pod');
 
-    const serviceIP = await createPodService(podName);
+    const podAddr = await createPodService(podName);
 
     // Update task with pod info
     const allTasks = readTasks();
     const t = allTasks.find((x) => x.id === nextTask.id);
     if (t) {
       t.podName = podName;
-      t.serviceIP = serviceIP;
+      t.serviceIP = podAddr;
     }
 
-    // Submit directly to this Pod
-    const podUrl = `http://${serviceIP}:8000`;
+    // Submit directly to this Pod via shared LB
+    const podUrl = `http://${podAddr}:8000`;
     const { problemText, problemImageBase64, quality, sections, briefSolution } = nextTask.params;
 
-    console.log(`[queue] Submitting ${nextTask.id} to ${podName} (${serviceIP})...`);
+    console.log(`[queue] Submitting ${nextTask.id} to ${podName} (${podAddr})...`);
 
     const resp = await fetch(`${podUrl}/tasks`, {
       method: 'POST',

@@ -5,8 +5,7 @@ import {
   deletePod,
   getReplicaCount,
   setReplicas,
-  listPodServices,
-  deletePodService,
+  getPodServiceMap,
 } from '../services/cluster.js';
 import { readTasks, writeTasks } from './store.js';
 
@@ -25,17 +24,16 @@ router.use(authenticate, requireAdmin);
 router.get('/pods', async (_req, res) => {
   try {
     const pods = await listPods();
-    const services = await listPodServices();
+    const serviceMap = await getPodServiceMap();
     const replicaCount = await getReplicaCount();
     const tasks = readTasks().filter((t) => t.status === 'running' || t.status === 'starting');
 
     // Merge service info into pod data
     const podsWithServices = pods.map((pod) => {
-      const svc = services.find((s) => s.podName === pod.name);
+      const svc = serviceMap.find((s) => s.podName === pod.name);
       return {
         ...pod,
         serviceIP: svc?.externalIP || null,
-        serviceName: svc?.name || null,
       };
     });
 

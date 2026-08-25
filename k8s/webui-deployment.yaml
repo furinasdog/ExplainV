@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: explainv-webui
+  namespace: explainv
+  labels:
+    app: explainv-webui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: explainv-webui
+  template:
+    metadata:
+      labels:
+        app: explainv-webui
+    spec:
+      serviceAccountName: explainv-webui
+      containers:
+        - name: webui
+          image: crpi-75bc6vhx9od6qai2.cn-hangzhou.personal.cr.aliyuncs.com/explainv/explainv-webui:v1.0.0
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: ACK_NAMESPACE
+              value: "explainv"
+            - name: ACK_DEPLOYMENT
+              value: "explainv-api"
+            - name: PORT
+              value: "3000"
+          envFrom:
+            - secretRef:
+                name: explainv-secrets
+          resources:
+            requests:
+              cpu: "0.5"
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: explainv-webui
+  namespace: explainv
+spec:
+  type: LoadBalancer
+  selector:
+    app: explainv-webui
+  ports:
+    - port: 80
+      targetPort: 3000
+      protocol: TCP

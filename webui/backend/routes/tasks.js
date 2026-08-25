@@ -117,16 +117,21 @@ async function submitTask(taskId) {
   console.log(`[${taskId}] Waiting for ${newCount} Pod(s)...`);
   await waitForReady(newCount, 300_000);
 
-  // 3. Find an available Pod (ready, no Service yet)
+  // 3. Find an available Pod (ready, not assigned to another task)
+  const allTasksForExclude = readTasks();
+  const usedPods = allTasksForExclude
+    .filter((t) => t.status === 'running' || t.status === 'submitted' || t.status === 'queued')
+    .map((t) => t.podName)
+    .filter(Boolean);
   console.log(`[${taskId}] Finding available Pod...`);
-  const podName = await findAvailablePod();
+  const podName = await findAvailablePod(usedPods);
   if (!podName) {
     throw new Error('No available Pod found');
   }
   console.log(`[${taskId}] Assigned Pod: ${podName}`);
 
-  // 4. Create LoadBalancer Service for this Pod
-  console.log(`[${taskId}] Creating Service for ${podName}...`);
+  // 4. Get Pod cluster IP
+  console.log(`[${taskId}] Getting IP for ${podName}...`);
   const serviceIP = await createPodService(podName);
 
   // 5. Record pod and service info in task

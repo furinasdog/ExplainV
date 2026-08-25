@@ -11,7 +11,9 @@ Usage::
 """
 
 import logging
+import os
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -19,15 +21,30 @@ from pathlib import Path
 # Defaults
 # ---------------------------------------------------------------------------
 
-_LOG_DIR = Path(__file__).resolve().parent.parent / "data" / "logs"
+_LOG_DIR = Path(
+    os.environ.get(
+        "EXPLAINV_LOG_DIR",
+        str(Path(__file__).resolve().parent.parent / "data" / "logs"),
+    )
+)
 _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 _INITIALIZED = False
 
 
-def _ensure_log_dir() -> Path:
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
-    return _LOG_DIR
+def _ensure_log_dir() -> Path | None:
+    """Try to create the log directory; fall back to /tmp on permission errors."""
+    for candidate in (_LOG_DIR, Path(tempfile.gettempdir()) / "explainv-logs"):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            # Verify we can actually write
+            test_file = candidate / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+            return candidate
+        except (PermissionError, OSError):
+            continue
+    return None
 
 
 def setup_logging(
@@ -63,14 +80,20 @@ def setup_logging(
     # -- File handler --
     if log_file is None:
         log_dir = _ensure_log_dir()
-        log_file = str(log_dir / f"explainv_{datetime.now():%Y%m%d_%H%M%S}.log")
+        if log_dir is not None:
+            log_file = str(log_dir / f"explainv_{datetime.now():%Y%m%d_%H%M%S}.log")
 
-    fh = logging.FileHandler(log_file, encoding="utf-8")
-    fh.setLevel(level)
-    fh.setFormatter(formatter)
-    root.addHandler(fh)
-
-    root.info("Logging initialized — file: %s", log_file)
+    if log_file is not None:
+        try:
+            fh = logging.FileHandler(log_file, encoding="utf-8")
+            fh.setLevel(level)
+            fh.setFormatter(formatter)
+            root.addHandler(fh)
+            root.info("Logging initialized — file: %s", log_file)
+        except (PermissionError, OSError):
+            root.warning("Cannot write to log file %s, console only", log_file)
+    else:
+        root.warning("No writable log directory, console only")
 
 
 def get_logger(name: str) -> logging.Logger:

@@ -1,4 +1,5 @@
 import * as k8s from '@kubernetes/client-node';
+import { existsSync } from 'fs';
 import config from '../config.js';
 
 const MAX_PODS = 10;
@@ -10,7 +11,16 @@ let coreApi = null;
 function getClient() {
   if (kc) return { kc, appsApi, coreApi };
   kc = new k8s.KubeConfig();
-  kc.loadFromFile(config.kubeconfigPath);
+
+  // In-cluster: use ServiceAccount token; fallback: load from kubeconfig file
+  if (existsSync('/var/run/secrets/kubernetes.io/serviceaccount/token')) {
+    kc.loadFromCluster();
+    console.log('Using in-cluster K8s authentication');
+  } else {
+    kc.loadFromFile(config.kubeconfigPath);
+    console.log(`Using kubeconfig: ${config.kubeconfigPath}`);
+  }
+
   appsApi = kc.makeApiClient(k8s.AppsV1Api);
   coreApi = kc.makeApiClient(k8s.CoreV1Api);
   return { kc, appsApi, coreApi };
@@ -122,13 +132,13 @@ export async function waitForReady(count = 1, timeoutMs = 300_000) {
 }
 
 /**
- * Find a ready Pod that doesn't have a per-pod Service yet.
+ * Find a ready Pod that is not already assigned to a running task.
+ * @param {string[]} [excludePods] - Pod names to exclude (already in use).
  * Returns the pod name (e.g. "explainv-api-0") or null.
  */
-export async function findAvailablePod() {
+export async function findAvailablePod(excludePods = []) {
   const pods = await listPods();
-  const existingServices = await listPodServices();
-  const usedPods = new Set(existingServices.map((s) => s.podName));
+  const usedPods = new Set(excludePods);
 
   const available = pods.find(
     (p) => p.ready && !usedPods.has(p.name)
@@ -138,122 +148,37 @@ export async function findAvailablePod() {
 }
 
 // ---------------------------------------------------------------------------
-// Per-Pod LoadBalancer Service management
+// Pod IP direct access (in-cluster, no LoadBalancer needed)
 // ---------------------------------------------------------------------------
 
 /**
- * List all per-pod LoadBalancer Services.
- */
-export async function listPodServices() {
-  const { coreApi } = getClient();
-  const resp = await coreApi.listNamespacedService({
-    namespace: config.ackNamespace,
-    labelSelector: 'managed-by=explainv-webui',
-  });
-  const svcList = resp.body || resp;
-  return (svcList.items || []).map((svc) => ({
-    name: svc.metadata.name,
-    podName: svc.metadata.labels['explainv-pod'],
-    externalIP: svc.status?.loadBalancer?.ingress?.[0]?.ip || null,
-  }));
-}
-
-/**
- * Create a LoadBalancer Service for a specific Pod and wait for its external IP.
- * Returns the external IP.
+ * Get the cluster IP for a Pod. Returns the pod's IP directly.
  */
 export async function createPodService(podName) {
-  const { coreApi } = getClient();
-  const svcName = `svc-${podName}`;
+  const pods = await listPods();
+  const pod = pods.find((p) => p.name === podName);
 
-  // Check if service already exists
-  try {
-    const existing = await coreApi.readNamespacedService({
-      name: svcName,
-      namespace: config.ackNamespace,
-    });
-    const ip = existing.body?.status?.loadBalancer?.ingress?.[0]?.ip
-      || (existing.body || existing)?.status?.loadBalancer?.ingress?.[0]?.ip;
-    if (ip) return ip;
-  } catch { /* doesn't exist, create it */ }
+  if (!pod) throw new Error(`Pod ${podName} not found`);
+  if (!pod.podIP) throw new Error(`Pod ${podName} has no IP yet`);
 
-  // Create LoadBalancer Service targeting this specific Pod
-  await coreApi.createNamespacedService({
-    namespace: config.ackNamespace,
-    body: {
-      apiVersion: 'v1',
-      kind: 'Service',
-      metadata: {
-        name: svcName,
-        labels: {
-          'managed-by': 'explainv-webui',
-          'explainv-pod': podName,
-        },
-      },
-      spec: {
-        type: 'LoadBalancer',
-        selector: {
-          'statefulset.kubernetes.io/pod-name': podName,
-        },
-        ports: [
-          { port: 8000, targetPort: 8000, protocol: 'TCP' },
-        ],
-      },
-    },
-  });
-
-  console.log(`Created Service ${svcName} for Pod ${podName}, waiting for IP...`);
-
-  // Wait for external IP (up to 3 minutes)
-  for (let i = 0; i < 36; i++) {
-    await new Promise((r) => setTimeout(r, 5000));
-
-    try {
-      const resp = await coreApi.readNamespacedService({
-        name: svcName,
-        namespace: config.ackNamespace,
-      });
-      const svc = resp.body || resp;
-      const ip = svc.status?.loadBalancer?.ingress?.[0]?.ip;
-      if (ip) {
-        console.log(`Service ${svcName} got IP: ${ip}`);
-        return ip;
-      }
-    } catch { /* keep waiting */ }
-  }
-
-  throw new Error(`Service ${svcName} did not get an IP within 180s`);
+  console.log(`Using Pod ${podName} cluster IP: ${pod.podIP}`);
+  return pod.podIP;
 }
 
 /**
- * Delete a per-pod Service.
+ * No-op: no services to clean up when using direct pod IP.
  */
-export async function deletePodService(svcName) {
-  const { coreApi } = getClient();
-  try {
-    await coreApi.deleteNamespacedService({
-      name: svcName,
-      namespace: config.ackNamespace,
-    });
-    console.log(`Deleted Service ${svcName}`);
-  } catch (err) {
-    if (err.statusCode !== 404) throw err;
-  }
-}
-
-/**
- * Delete the per-pod Service for a specific Pod name.
- */
-export async function deletePodServiceByName(podName) {
-  await deletePodService(`svc-${podName}`);
-}
+export async function deletePodService(_svcName) {}
+export async function deletePodServiceByName(_podName) {}
 
 /**
  * Get all pod service mappings: [{ podName, externalIP }].
  */
 export async function getPodServiceMap() {
-  const services = await listPodServices();
-  return services.filter((s) => s.externalIP);
+  const pods = await listPods();
+  return pods
+    .filter((p) => p.ready && p.podIP)
+    .map((p) => ({ podName: p.name, externalIP: p.podIP }));
 }
 
 // ---------------------------------------------------------------------------
@@ -275,4 +200,28 @@ export async function deletePod(podName) {
 
   // Also delete the associated Service
   await deletePodServiceByName(podName).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Health check helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Poll the health endpoint until it responds with 200.
+ */
+async function waitForHealth(ip, port, timeoutMs) {
+  const start = Date.now();
+  const url = `http://${ip}:${port}/health`;
+
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(5000) });
+      if (resp.ok) {
+        console.log(`Health check passed for ${ip}:${port}`);
+        return true;
+      }
+    } catch { /* not ready yet */ }
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return false;
 }
