@@ -18,7 +18,7 @@ spec:
       serviceAccountName: explainv-webui
       containers:
         - name: webui
-          image: crpi-75bc6vhx9od6qai2.cn-hangzhou.personal.cr.aliyuncs.com/explainv/explainv-webui:v1.0.0
+          image: crpi-75bc6vhx9od6qai2.cn-hangzhou.personal.cr.aliyuncs.com/explainv/explainv-webui:v1.4.0
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
