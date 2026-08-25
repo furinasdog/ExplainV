@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     default_quality: str = "l"
     default_ref_audio: str = str(_PROJECT_ROOT / "asset" / "mar7th.wav")
 
+    # OSS (for uploading generated videos)
+    oss_region: str = ""
+    oss_bucket: str = ""
+    oss_access_key_id: str = ""
+    oss_access_key_secret: str = ""
+
     model_config = {"env_prefix": "EXPLAINV_", "env_file": ".env", "extra": "ignore"}
 
 

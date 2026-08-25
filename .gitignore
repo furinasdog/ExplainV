@@ -229,3 +229,17 @@ media/
 
 # Voice cloning runtime cache
 asset/.voice_id_cache.json
+
+# Kubernetes kubeconfig (contains cluster credentials)
+kubeconfig.yaml
+
+# WebUI
+webui/.env
+webui/backend/data/
+webui/backend/node_modules/
+webui/frontend/node_modules/
+webui/frontend/dist/
+webui/node_modules/
+
+# Logs
+*.log

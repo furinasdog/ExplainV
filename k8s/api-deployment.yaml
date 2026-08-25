@@ -6,8 +6,8 @@ metadata:
   labels:
     app: explainv-api
 spec:
-  # 每个 Pod 同时处理 1 个任务，通过增加 replicas 水平扩展
-  replicas: 2
+  # 默认 0 副本，由 WebUI 后端按需扩缩
+  replicas: 0
   selector:
     matchLabels:
       app: explainv-api
@@ -16,9 +16,10 @@ spec:
       labels:
         app: explainv-api
     spec:
+      dnsPolicy: Default
       containers:
         - name: api
-          image: explainv:latest        # 替换为实际镜像地址（如 ACR）
+          image: crpi-75bc6vhx9od6qai2.cn-hangzhou.personal.cr.aliyuncs.com/explainv/explainv:v1.3.3
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -55,5 +56,4 @@ spec:
             # 由 UI 后端通过 /health 的 busy 字段决定是否发送新任务
       volumes:
         - name: data-volume
-          persistentVolumeClaim:
-            claimName: explainv-data
+          emptyDir: {}

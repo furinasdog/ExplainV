@@ -7,16 +7,23 @@ USER root
 
 WORKDIR /app
 
-# 安装系统依赖
+# 安装系统依赖 + 中文字体
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
+
+# 用 tlmgr 安装中文 LaTeX 包（manim 使用 /usr/local/texlive）
+RUN tlmgr install ctex xecjk fontspec \
+    && tlmgr update --self
 
 # 复制依赖文件，利用 Docker 缓存
 COPY requirements.txt .
 
-# 安装 Python 依赖
-RUN pip install --no-cache-dir -r requirements.txt \
+# 配置阿里云 pip 镜像源 + 安装 Python 依赖
+RUN pip config set global.index-url https://mirrors.aliyun.com/pypi/simple/ \
+    && pip config set global.trusted-host mirrors.aliyun.com \
+    && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir \
         fastapi \
         "uvicorn[standard]" \

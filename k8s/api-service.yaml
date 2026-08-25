@@ -10,4 +10,4 @@ spec:
     - port: 8000
       targetPort: 8000
       protocol: TCP
-  type: ClusterIP                     # 生产环境可改为 LoadBalancer
+  type: LoadBalancer

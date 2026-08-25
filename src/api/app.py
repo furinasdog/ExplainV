@@ -77,6 +77,7 @@ _state = {
     "progress": None,
     "result": None,       # TaskResult dict or None
     "error": None,        # str or None
+    "task_id": None,      # external task ID from WebUI backend
 }
 
 
@@ -87,6 +88,7 @@ def _reset_state():
         _state["progress"] = None
         _state["result"] = None
         _state["error"] = None
+        _state["task_id"] = None
 
 
 def _set_progress(stage: str, progress: float):
@@ -110,6 +112,28 @@ def _set_error(error: str):
 def _get_state() -> dict:
     with _lock:
         return dict(_state)
+
+
+# ---------------------------------------------------------------------------
+# OSS 上传
+# ---------------------------------------------------------------------------
+
+def _upload_to_oss(video_path: Path, video_name: str, logger) -> str:
+    """Upload video to Alibaba Cloud OSS and return a signed URL."""
+    import oss2
+
+    auth = oss2.Auth(settings.oss_access_key_id, settings.oss_access_key_secret)
+    bucket = oss2.Bucket(auth, settings.oss_region, settings.oss_bucket)
+
+    oss_key = f"videos/{video_name}"
+    logger.info("Uploading %s to OSS: %s", video_path, oss_key)
+
+    bucket.put_object_from_file(oss_key, str(video_path))
+
+    # Generate signed URL valid for 7 days
+    url = bucket.sign_url("GET", oss_key, 7 * 24 * 3600)
+    logger.info("Video uploaded to OSS: %s", url[:80])
+    return url
 
 
 # ---------------------------------------------------------------------------
@@ -160,8 +184,14 @@ def _run_pipeline_sync(request: TaskRequest) -> dict:
             result = pipeline.run_text(request.problem_text or "")
 
         video_name = Path(result.video_path).name
+
+        # Upload video to OSS if configured
+        video_url = f"/files/{video_name}"
+        if settings.oss_bucket and settings.oss_access_key_id:
+            video_url = _upload_to_oss(result.video_path, video_name, logger)
+
         return {
-            "video_url": f"/files/{video_name}",
+            "video_url": video_url,
             "explanation": result.explanation,
             "code": result.scene.code,
         }
@@ -204,6 +234,7 @@ async def create_task(request: TaskRequest):
         _state["busy"] = True
         _state["stage"] = "initializing"
         _state["progress"] = 0.0
+        _state["task_id"] = request.task_id
 
     async def _background_run():
         async with _task_lock:
@@ -232,6 +263,7 @@ async def get_status():
 
     return StatusResponse(
         busy=s["busy"],
+        task_id=s.get("task_id"),
         stage=s["stage"],
         progress=s["progress"],
         result=result,

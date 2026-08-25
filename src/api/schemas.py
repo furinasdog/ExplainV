@@ -34,6 +34,9 @@ class TaskRequest(BaseModel):
     brief_solution: bool = Field(
         default=False, description="是否启用简略解答模式"
     )
+    task_id: Optional[str] = Field(
+        default=None, description="外部任务 ID（由 WebUI 后端传入，用于进度关联）"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +62,7 @@ class StatusResponse(BaseModel):
     """GET /status 响应体。"""
 
     busy: bool = Field(description="当前是否有任务在执行")
+    task_id: Optional[str] = Field(default=None, description="当前处理的外部任务 ID")
     stage: Optional[str] = Field(default=None, description="当前阶段名称")
     progress: Optional[float] = Field(default=None, description="进度 0.0–1.0")
     result: Optional[TaskResult] = Field(default=None, description="任务结果（仅完成时）")
